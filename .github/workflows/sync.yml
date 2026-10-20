@@ -1,0 +1,29 @@
+name: Auto Sync Football Matches
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # <-- Dòng này chính là câu lệnh tạo ra nút "Run workflow" thủ công!
+
+jobs:
+  sync-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests supabase
+
+      - name: Run Football Sync Script
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          FOOTBALL_API_KEY: ${{ secrets.FOOTBALL_API_KEY }}
+        run: python sync_matches.py
