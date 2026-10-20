@@ -22,6 +22,10 @@
 @rem
 
 @if "%DEBUG%"=="" @echo off
+
+@rem Ghi đè JAVA_HOME ngay đầu file để bỏ qua biến môi trường hỏng
+set "JAVA_HOME=C:\Program Files\Android\Android Studio\jbr"
+
 @rem ##########################################################################
 @rem
 @rem  Gradle startup script for Windows
@@ -75,9 +79,7 @@ goto fail
 :execute
 @rem Setup the command line
 
-
-
-@rem Execute Gradle
+@rem Execute Gradle 
 "%JAVA_EXE%" %DEFAULT_JVM_OPTS% %JAVA_OPTS% %GRADLE_OPTS% "-Dorg.gradle.appname=%APP_BASE_NAME%" -jar "%APP_HOME%\gradle\wrapper\gradle-wrapper.jar" %*
 
 :end
