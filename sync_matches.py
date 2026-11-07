@@ -1,28 +1,25 @@
+import os
 import requests
 from datetime import datetime, timedelta
 from supabase import create_client, Client
 
-SUPABASE_URL = "https://pgwrrhvijrjcszihswnm.supabase.co"
-SUPABASE_KEY = "sb_secret_Ev9Fpxq-vhV_ntr5Z5VE0A_7XldegTm"
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://pgwrrhvijrjcszihswnm.supabase.co")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_secret_Ev9Fpxq-vhV_ntr5Z5VE0A_7XldegTm")
+FOOTBALL_API_KEY = os.environ.get("FOOTBALL_API_KEY", "35d5e00fd47d4770895bcf02b6e76d0b")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-FOOTBALL_API_KEY = "35d5e00fd47d4770895bcf02b6e76d0b"
 
-# Mã 5 giải VĐQG hàng đầu + Cúp C1, C2, C3
 ALLOWED_COMPETITIONS = ['PL', 'PD', 'SA', 'BL1', 'FL1', 'CL', 'EL', 'ECL']
 
 def sync_football_data():
-    # Khung ngày 10 ngày (từ hôm qua đến 8 ngày tới)
     date_from = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
     date_to = (datetime.now() + timedelta(days=8)).strftime('%Y-%m-%d')
-    
-    # Lọc theo các giải trọng tâm
     competitions_param = ",".join(ALLOWED_COMPETITIONS)
     
     url = f"https://api.football-data.org/v4/matches?competitions={competitions_param}&dateFrom={date_from}&dateTo={date_to}"
     headers = { 'X-Auth-Token': FOOTBALL_API_KEY }
 
-    print(f"⏳ Đang lọc trận đấu từ {date_from} đến {date_to} cho các giải: {competitions_param}...")
+    print(f"⏳ Đang lọc trận đấu từ {date_from} đến {date_to}...")
 
     try:
         response = requests.get(url, headers=headers)
@@ -32,7 +29,7 @@ def sync_football_data():
 
         data = response.json()
         matches = data.get('matches', [])
-        print(f"✅ Tìm thấy {len(matches)} trận đấu thuộc các giải trọng tâm!")
+        print(f"✅ Tìm thấy {len(matches)} trận đấu!")
 
         if not matches:
             print("ℹ️ Không có trận đấu nào trong khoảng thời gian này.")
@@ -40,11 +37,14 @@ def sync_football_data():
 
         records_to_upsert = []
         for match in matches:
+            match_id = str(match['id'])
+            status = match['status']
+            
             record = {
-                'event_id': str(match['id']),
+                'event_id': match_id,
                 'home_team': match['homeTeam'].get('shortName') or match['homeTeam'].get('name', ''),
                 'away_team': match['awayTeam'].get('shortName') or match['awayTeam'].get('name', ''),
-                'status': match['status'],
+                'status': status,
                 'league': match['competition'].get('name', ''),
                 'home_score': match['score']['fullTime']['home'],
                 'away_score': match['score']['fullTime']['away'],
@@ -52,9 +52,34 @@ def sync_football_data():
                 'home_icon': match['homeTeam'].get('crest'),
                 'away_icon': match['awayTeam'].get('crest'),
             }
+
+            # Nếu trận đang đá hoặc đã kết thúc ➔ Gọi API lấy thông số chi tiết
+            if status in ['IN_PLAY', 'PAUSED', 'FINISHED']:
+                try:
+                    detail_url = f"https://api.football-data.org/v4/matches/{match_id}"
+                    detail_res = requests.get(detail_url, headers=headers)
+                    if detail_res.status_code == 200:
+                        detail_data = detail_res.json()
+                        stats = detail_data.get('stats', {})
+
+                        record.update({
+                            'home_possession': stats.get('possession', {}).get('home'),
+                            'away_possession': stats.get('possession', {}).get('away'),
+                            'home_shots': stats.get('shots', {}).get('home'),
+                            'away_shots': stats.get('shots', {}).get('away'),
+                            'home_shots_on_target': stats.get('shotsOnTarget', {}).get('home'),
+                            'away_shots_on_target': stats.get('shotsOnTarget', {}).get('away'),
+                            'home_corners': stats.get('corners', {}).get('home'),
+                            'away_corners': stats.get('corners', {}).get('away'),
+                            'home_fouls': stats.get('fouls', {}).get('home'),
+                            'away_fouls': stats.get('fouls', {}).get('away'),
+                        })
+                except Exception as err:
+                    print(f"⚠️ Chưa lấy được stats cho trận {match_id}: {err}")
+
             records_to_upsert.append(record)
 
-        # Cập nhật hàng loạt vào Supabase
+        # Upsert dữ liệu vào Supabase
         supabase.table('matches').upsert(records_to_upsert, on_conflict='event_id').execute()
         print(f"🎉 Hoàn tất lưu {len(records_to_upsert)} trận đấu vào Supabase!")
 
