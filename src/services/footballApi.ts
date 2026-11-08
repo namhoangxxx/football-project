@@ -10,12 +10,12 @@ const headers = {
 };
 
 /**
- * Lấy danh sách trận đấu cho HomeScreen (Gồm cả LIVE, UPCOMING và FINISHED)
+ * Lấy danh sách trận đấu cho HomeScreen
  */
 export const fetchMatchesFromSupabase = async (): Promise<Match[]> => {
   try {
     const response = await fetch(
-      `${SUPABASE_URL}/rest/v1/matches?order=match_time.desc&select=*`,
+      `${SUPABASE_URL}/rest/v1/matches?order=match_time.asc&limit=100`,
       { method: 'GET', headers }
     );
     if (!response.ok) throw new Error('Không thể lấy dữ liệu từ Supabase');
@@ -27,45 +27,45 @@ export const fetchMatchesFromSupabase = async (): Promise<Match[]> => {
 };
 
 /**
- * Lấy tất cả lịch sử & kết quả đấu của 1 CLB (Query ID trước, nếu rỗng thì query theo tên)
+ * Lấy tất cả lịch sử & kết quả đấu của 1 CLB
  */
 export const fetchClubMatchesFromSupabase = async (
   teamId: number,
   teamName?: string
 ): Promise<Match[]> => {
   try {
-    // 1. Lọc theo teamId
-    const queryId = `or=(home_team_id.eq.${teamId},away_team_id.eq.${teamId})&order=match_time.desc&select=*`;
-    let response = await fetch(`${SUPABASE_URL}/rest/v1/matches?${queryId}`, {
-      method: 'GET',
-      headers,
-    });
+    // 1. Tìm theo teamId
+    if (teamId) {
+      const endpointId = `${SUPABASE_URL}/rest/v1/matches?or=(home_team_id.eq.${teamId},away_team_id.eq.${teamId})&order=match_time.desc&limit=50`;
+      const resId = await fetch(endpointId, { method: 'GET', headers });
 
-    if (response.ok) {
-      const data: Match[] = await response.json();
-      if (data && data.length > 0) return data;
+      if (resId.ok) {
+        const dataId: Match[] = await resId.json();
+        if (dataId && dataId.length > 0) {
+          return dataId;
+        }
+      }
     }
 
-    // 2. Dự phòng: Nếu chưa có ID (hoặc ID = null trong DB), tìm theo keyword Tên
+    // 2. Dự phòng: Tìm theo Tên CLB
     if (teamName) {
-      const cleanName = teamName
+      // Lấy từ khóa chính của tên đội
+      const searchWord = teamName
         .replace(/\b(FC|CF|BSC|SV|AFC|SSC|RB|VfB|VfL|1\.|AC)\b/gi, '')
-        .replace(/&/g, '')
-        .trim();
-      const firstWord = cleanName.split(' ')[0] || teamName;
+        .trim()
+        .split(' ')[0] || teamName;
 
-      const queryName = `or=(home_team.ilike.*${encodeURIComponent(
-        firstWord
+      const endpointName = `${SUPABASE_URL}/rest/v1/matches?or=(home_team.ilike.*${encodeURIComponent(
+        searchWord
       )}*,away_team.ilike.*${encodeURIComponent(
-        firstWord
-      )}*)&order=match_time.desc&select=*`;
+        searchWord
+      )}*)&order=match_time.desc&limit=50`;
 
-      response = await fetch(`${SUPABASE_URL}/rest/v1/matches?${queryName}`, {
-        method: 'GET',
-        headers,
-      });
+      const resName = await fetch(endpointName, { method: 'GET', headers });
 
-      if (response.ok) return await response.json();
+      if (resName.ok) {
+        return await resName.json();
+      }
     }
 
     return [];
