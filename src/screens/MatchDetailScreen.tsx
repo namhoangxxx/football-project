@@ -1,11 +1,11 @@
 import React from 'react';
 import {
-    Image,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Match } from '../types/football';
@@ -13,7 +13,8 @@ import { Match } from '../types/football';
 interface MatchDetailProps {
   match: Match;
   onBack: () => void;
-  onSelectClub: (teamName: string, logoUrl?: string) => void;
+  // 1. Cập nhật signature để nhận thêm teamId (number)
+  onSelectClub: (teamId: number, teamName: string, logoUrl?: string) => void;
 }
 
 export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
@@ -55,10 +56,17 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.scoreboardCard}>
+          {/* 2. Truyền match.home_team_id cho Đội nhà */}
           <TouchableOpacity
             style={styles.teamContainer}
             activeOpacity={0.7}
-            onPress={() => onSelectClub(match.home_team, match.home_icon || undefined)}
+            onPress={() =>
+              onSelectClub(
+                match.home_team_id,
+                match.home_team,
+                match.home_icon || undefined
+              )
+            }
           >
             {match.home_icon ? (
               <Image source={{ uri: match.home_icon }} style={styles.teamLogo} />
@@ -84,7 +92,11 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
                     match.status === 'IN_PLAY' && styles.liveBadge,
                   ]}
                 >
-                  {match.status === 'IN_PLAY' ? '🔴 LIVE' : match.status === 'FINISHED' ? 'FT (Kết thúc)' : match.status}
+                  {match.status === 'IN_PLAY'
+                    ? '🔴 LIVE'
+                    : match.status === 'FINISHED'
+                    ? 'FT (Kết thúc)'
+                    : match.status}
                 </Text>
               </>
             ) : (
@@ -95,10 +107,17 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
             )}
           </View>
 
+          {/* 3. Truyền match.away_team_id cho Đội khách */}
           <TouchableOpacity
             style={styles.teamContainer}
             activeOpacity={0.7}
-            onPress={() => onSelectClub(match.away_team, match.away_icon || undefined)}
+            onPress={() =>
+              onSelectClub(
+                match.away_team_id,
+                match.away_team,
+                match.away_icon || undefined
+              )
+            }
           >
             {match.away_icon ? (
               <Image source={{ uri: match.away_icon }} style={styles.teamLogo} />
@@ -169,6 +188,7 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
     </SafeAreaView>
   );
 };
+ 
 
 const styles = StyleSheet.create({
   container: {

@@ -1,18 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    FlatList,
-    Image,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchClubMatchesFromSupabase } from '../services/footballApi';
 import { Match } from '../types/football';
 
 interface ClubDetailProps {
+  teamId: number;
   teamName: string;
   logoUrl?: string;
   onBack: () => void;
@@ -20,6 +21,7 @@ interface ClubDetailProps {
 }
 
 export const ClubDetailScreen: React.FC<ClubDetailProps> = ({
+  teamId,
   teamName,
   logoUrl,
   onBack,
@@ -30,12 +32,13 @@ export const ClubDetailScreen: React.FC<ClubDetailProps> = ({
 
   useEffect(() => {
     loadClubData();
-  }, [teamName]);
+  }, [teamId, teamName]);
 
   const loadClubData = async () => {
     setLoading(true);
     try {
-      const data = await fetchClubMatchesFromSupabase(teamName);
+      // Gọi API lấy dữ liệu theo teamId (truyền thêm teamName để fallback nếu cần)
+      const data = await fetchClubMatchesFromSupabase(teamId, teamName);
       setMatches(data || []);
     } catch (error) {
       console.error('Lỗi tải dữ liệu trận đấu của CLB:', error);
@@ -45,7 +48,14 @@ export const ClubDetailScreen: React.FC<ClubDetailProps> = ({
   };
 
   const renderMatchItem = ({ item }: { item: Match }) => {
-    const isFinished = item.status === 'FINISHED';
+    // Kiểm tra trận đấu đã xong HOẶC đang diễn ra trực tiếp
+    const isFinishedOrLive =
+      item.status === 'FINISHED' ||
+      item.status === 'IN_PLAY' ||
+      item.status === 'PAUSED' ||
+      item.status === 'HALFTIME';
+
+    const isLive = item.status === 'IN_PLAY' || item.status === 'PAUSED' || item.status === 'HALFTIME';
 
     const matchDate = item.match_time
       ? new Date(item.match_time).toLocaleDateString('vi-VN', {
@@ -70,6 +80,7 @@ export const ClubDetailScreen: React.FC<ClubDetailProps> = ({
         </Text>
 
         <View style={styles.matchRow} pointerEvents="none">
+          {/* Đội nhà */}
           <View style={styles.teamContainer}>
             {item.home_icon ? (
               <Image source={{ uri: item.home_icon }} style={styles.miniLogo} />
@@ -77,7 +88,7 @@ export const ClubDetailScreen: React.FC<ClubDetailProps> = ({
             <Text
               style={[
                 styles.teamNameText,
-                item.home_team === teamName && styles.highlightTeam,
+                (item.home_team_id === teamId || item.home_team === teamName) && styles.highlightTeam,
               ]}
               numberOfLines={1}
             >
@@ -85,17 +96,28 @@ export const ClubDetailScreen: React.FC<ClubDetailProps> = ({
             </Text>
           </View>
 
+          {/* Cụm hiển thị tỷ số / thời gian */}
           <View style={styles.scoreContainer}>
-            {isFinished ? (
-              <Text style={styles.scoreText}>
+            {isFinishedOrLive ? (
+              <Text style={[styles.scoreText, isLive && styles.liveScoreText]}>
                 {item.home_score ?? 0} - {item.away_score ?? 0}
               </Text>
             ) : (
               <Text style={styles.timeText}>{matchDate}</Text>
             )}
-            <Text style={styles.statusBadge}>{item.status}</Text>
+
+            <Text style={[styles.statusBadge, isLive && styles.liveBadgeText]}>
+              {item.status === 'IN_PLAY'
+                ? '🔴 LIVE'
+                : item.status === 'PAUSED' || item.status === 'HALFTIME'
+                ? 'HT (Giữa hiệp)'
+                : item.status === 'FINISHED'
+                ? 'FT'
+                : item.status}
+            </Text>
           </View>
 
+          {/* Đội khách */}
           <View style={styles.teamContainer}>
             {item.away_icon ? (
               <Image source={{ uri: item.away_icon }} style={styles.miniLogo} />
@@ -103,7 +125,7 @@ export const ClubDetailScreen: React.FC<ClubDetailProps> = ({
             <Text
               style={[
                 styles.teamNameText,
-                item.away_team === teamName && styles.highlightTeam,
+                (item.away_team_id === teamId || item.away_team === teamName) && styles.highlightTeam,
               ]}
               numberOfLines={1}
             >
@@ -117,6 +139,7 @@ export const ClubDetailScreen: React.FC<ClubDetailProps> = ({
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={onBack}
@@ -132,6 +155,7 @@ export const ClubDetailScreen: React.FC<ClubDetailProps> = ({
         <View style={{ width: 70 }} />
       </View>
 
+      {/* Thông tin CLB Header */}
       <View style={styles.profileHeader}>
         {logoUrl ? (
           <Image source={{ uri: logoUrl }} style={styles.clubLogo} />
@@ -143,10 +167,11 @@ export const ClubDetailScreen: React.FC<ClubDetailProps> = ({
         <Text style={styles.clubTitle}>{teamName}</Text>
       </View>
 
+      {/* Danh sách trận đấu */}
       <View style={styles.contentContainer}>
         <Text style={styles.sectionTitle}>Lịch thi đấu & Kết quả</Text>
         {loading ? (
-          <ActivityIndicator size="large" color="#007AFF" style={{ marginTop: 20 }} />
+          <ActivityIndicator size="large" color="#00E676" style={{ marginTop: 20 }} />
         ) : (
           <FlatList
             data={matches}
@@ -292,6 +317,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#212529',
   },
+  liveScoreText: { color: '#FF3B30' },
+
   timeText: {
     fontSize: 11,
     color: '#495057',
@@ -301,6 +328,7 @@ const styles = StyleSheet.create({
     color: '#868E96',
     marginTop: 2,
   },
+  liveBadgeText: { color: '#FF3B30', fontWeight: 'bold' },
   emptyText: {
     textAlign: 'center',
     color: '#868E96',

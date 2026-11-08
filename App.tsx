@@ -12,7 +12,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { MatchCard } from './src/components/MatchCard';
 import { ClubDetailScreen } from './src/screens/ClubDetailScreen';
 import { MatchDetailScreen } from './src/screens/MatchDetailScreen';
-import StandingsScreen from './src/screens/StandingsScreen';
+import { StandingsScreen } from './src/screens/StandingsScreen';
 import { fetchMatchesFromSupabase } from './src/services/footballApi';
 import { Match } from './src/types/football';
 
@@ -24,7 +24,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('LIVE');
 
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
-  const [selectedClub, setSelectedClub] = useState<{ teamName: string; logoUrl?: string } | null>(null);
+  
+  // 1. Cập nhật state selectedClub để lưu thêm teamId
+  const [selectedClub, setSelectedClub] = useState<{ teamId: number; teamName: string; logoUrl?: string } | null>(null);
 
   const loadMatches = async () => {
     try {
@@ -48,15 +50,15 @@ export default function App() {
     return true;
   });
 
-  // ƯU TIÊN 1: Màn hình Chi tiết Trận đấu (Mở từ HomeScreen hoặc từ ClubDetailScreen)
+  // ƯU TIÊN 1: Màn hình Chi tiết Trận đấu
   if (selectedMatch) {
     return (
       <MatchDetailScreen
         match={selectedMatch}
         onBack={() => setSelectedMatch(null)}
-        onSelectClub={(teamName, logoUrl) => {
-          setSelectedMatch(null); // Đóng trận đấu để xem CLB
-          setSelectedClub({ teamName, logoUrl });
+        onSelectClub={(teamId, teamName, logoUrl) => {
+          setSelectedMatch(null);
+          setSelectedClub({ teamId, teamName, logoUrl });
         }}
       />
     );
@@ -66,10 +68,11 @@ export default function App() {
   if (selectedClub) {
     return (
       <ClubDetailScreen
+        teamId={selectedClub.teamId} // Truyền teamId xuống ClubDetailScreen
         teamName={selectedClub.teamName}
         logoUrl={selectedClub.logoUrl}
         onBack={() => setSelectedClub(null)}
-        onSelectMatch={(match) => setSelectedMatch(match)} // Chuyển sang selectedMatch
+        onSelectMatch={(match) => setSelectedMatch(match)}
       />
     );
   }
@@ -114,7 +117,9 @@ export default function App() {
         </View>
 
         {activeTab === 'STANDINGS' ? (
-          <StandingsScreen onSelectTeam={(teamName, logoUrl) => setSelectedClub({ teamName, logoUrl })} />
+          <StandingsScreen 
+            onSelectTeam={(teamId, teamName, logoUrl) => setSelectedClub({ teamId, teamName, logoUrl })} 
+          />
         ) : loading ? (
           <ActivityIndicator size="large" color="#00E676" style={{ marginTop: 40 }} />
         ) : (

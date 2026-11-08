@@ -20,8 +20,9 @@ const TOP_LEAGUES = [
   { id: 'FL1', name: 'Ligue 1' },
 ];
 
+// 1. Cập nhật Interface: thêm tham số teamId vào callback onSelectTeam
 export interface StandingsScreenProps {
-  onSelectTeam?: (teamName: string, logoUrl?: string) => void;
+  onSelectTeam?: (teamId: number, teamName: string, logoUrl?: string) => void;
 }
 
 export const StandingsScreen: React.FC<StandingsScreenProps> = ({ onSelectTeam }) => {
@@ -71,7 +72,8 @@ export const StandingsScreen: React.FC<StandingsScreenProps> = ({ onSelectTeam }
     <TouchableOpacity
       style={styles.tableRow}
       activeOpacity={0.7}
-      onPress={() => onSelectTeam && onSelectTeam(item.team.name, item.team.crest)}
+      // 2. Truyền thêm item.team.id vào hàm callback
+      onPress={() => onSelectTeam && onSelectTeam(item.team.id, item.team.name, item.team.crest)}
     >
       <Text style={[styles.cell, styles.posCol, styles.posText]}>{item.position}</Text>
       <View style={[styles.cell, styles.teamCol, styles.teamInfo]}>
@@ -130,8 +132,6 @@ export const StandingsScreen: React.FC<StandingsScreenProps> = ({ onSelectTeam }
     </View>
   );
 };
-
-export default StandingsScreen;
 
 const styles = StyleSheet.create({
   container: {
