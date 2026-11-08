@@ -12,15 +12,15 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 ALLOWED_COMPETITIONS = ['PL', 'PD', 'SA', 'BL1', 'FL1', 'CL', 'EL', 'ECL']
 
 def sync_football_data():
-    # Lấy dữ liệu từ 30 ngày trước đến 10 ngày tới
-    date_from = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-    date_to = (datetime.now() + timedelta(days=10)).strftime('%Y-%m-%d')
+    # Lấy dữ liệu từ 7 ngày trước đến 7 ngày tới
+    date_from = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+    date_to = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
     competitions_param = ",".join(ALLOWED_COMPETITIONS)
     
     url = f"https://api.football-data.org/v4/matches?competitions={competitions_param}&dateFrom={date_from}&dateTo={date_to}"
     headers = { 'X-Auth-Token': FOOTBALL_API_KEY }
 
-    print(f"⏳ Đang tải dữ liệu trận đấu từ {date_from} đến {date_to}...")
+    print(f"⏳ Đang tải dữ liệu từ {date_from} đến {date_to}...")
 
     try:
         response = requests.get(url, headers=headers)
@@ -30,10 +30,10 @@ def sync_football_data():
 
         data = response.json()
         matches = data.get('matches', [])
-        print(f"✅ Tìm thấy tổng cộng {len(matches)} trận đấu!")
+        print(f"✅ Tìm thấy {len(matches)} trận đấu!")
 
         if not matches:
-            print("ℹ️ Không tìm thấy trận đấu nào.")
+            print("ℹ️ Không có trận đấu nào.")
             return
 
         records_to_upsert = []
@@ -64,10 +64,10 @@ def sync_football_data():
 
         if records_to_upsert:
             supabase.table('matches').upsert(records_to_upsert, on_conflict='event_id').execute()
-            print(f"🎉 Đã lưu thành công {len(records_to_upsert)} trận vào Supabase!")
+            print(f"🎉 Lưu thành công {len(records_to_upsert)} trận vào Supabase!")
 
     except Exception as e:
-        print(f"⚠️ Đã xảy ra lỗi trong quá trình đồng bộ: {e}")
+        print(f"⚠️ Lỗi trong quá trình đồng bộ: {e}")
 
 if __name__ == "__main__":
     sync_football_data()
