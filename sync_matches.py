@@ -44,6 +44,9 @@ def sync_football_data():
                 'event_id': match_id,
                 'home_team': match['homeTeam'].get('shortName') or match['homeTeam'].get('name', ''),
                 'away_team': match['awayTeam'].get('shortName') or match['awayTeam'].get('name', ''),
+                # BỔ SUNG: Trích xuất ID chính xác từ API bóng đá
+                'home_team_id': match['homeTeam'].get('id'),
+                'away_team_id': match['awayTeam'].get('id'),
                 'status': status,
                 'league': match['competition'].get('name', ''),
                 'home_score': match['score']['fullTime']['home'],
