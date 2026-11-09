@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   ScrollView,
   StyleSheet,
@@ -8,12 +9,14 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatBar } from '../components/StatBar';
+import { getMatchStats } from '../services/matchDetailService';
 import { Match } from '../types/football';
+import { MatchStats } from '../types/matchDetail';
 
 interface MatchDetailProps {
   match: Match;
   onBack: () => void;
-  // 1. Cập nhật signature để nhận thêm teamId (number)
   onSelectClub: (teamId: number, teamName: string, logoUrl?: string) => void;
 }
 
@@ -22,9 +25,13 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
   onBack,
   onSelectClub,
 }) => {
+  const [stats, setStats] = useState<MatchStats | null>(null);
+  const [loadingStats, setLoadingStats] = useState<boolean>(false);
+
   const isFinishedOrLive =
     match.status === 'IN_PLAY' ||
     match.status === 'PAUSED' ||
+    match.status === 'HALFTIME' ||
     match.status === 'FINISHED';
 
   const matchDate = match.match_time
@@ -36,6 +43,34 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
         timeZone: 'Asia/Ho_Chi_Minh',
       })
     : 'Chưa xếp lịch';
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (isFinishedOrLive) {
+      setLoadingStats(true);
+      getMatchStats(
+        match.event_id,
+        match.home_team,
+        match.match_time || '',
+        match.status,
+        match.home_team_id
+      )
+        .then((data) => {
+          if (isMounted) {
+            setStats(data);
+            setLoadingStats(false);
+          }
+        })
+        .catch(() => {
+          if (isMounted) setLoadingStats(false);
+        });
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [match]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -56,7 +91,6 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.scoreboardCard}>
-          {/* 2. Truyền match.home_team_id cho Đội nhà */}
           <TouchableOpacity
             style={styles.teamContainer}
             activeOpacity={0.7}
@@ -107,7 +141,6 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
             )}
           </View>
 
-          {/* 3. Truyền match.away_team_id cho Đội khách */}
           <TouchableOpacity
             style={styles.teamContainer}
             activeOpacity={0.7}
@@ -135,31 +168,46 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
         {isFinishedOrLive ? (
           <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>📊 Thông số trận đấu</Text>
-            <View style={styles.statRow}>
-              <Text style={styles.statValue}>54%</Text>
-              <Text style={styles.statLabel}>Kiểm soát bóng</Text>
-              <Text style={styles.statValue}>46%</Text>
-            </View>
-            <View style={styles.statRow}>
-              <Text style={styles.statValue}>12</Text>
-              <Text style={styles.statLabel}>Tổng số cú sút</Text>
-              <Text style={styles.statValue}>8</Text>
-            </View>
-            <View style={styles.statRow}>
-              <Text style={styles.statValue}>5</Text>
-              <Text style={styles.statLabel}>Sút trúng đích</Text>
-              <Text style={styles.statValue}>3</Text>
-            </View>
-            <View style={styles.statRow}>
-              <Text style={styles.statValue}>6</Text>
-              <Text style={styles.statLabel}>Phạt góc</Text>
-              <Text style={styles.statValue}>4</Text>
-            </View>
-            <View style={styles.statRow}>
-              <Text style={styles.statValue}>11</Text>
-              <Text style={styles.statLabel}>Phạm lỗi</Text>
-              <Text style={styles.statValue}>14</Text>
-            </View>
+
+            {loadingStats ? (
+              <View style={styles.loadingBox}>
+                <ActivityIndicator size="small" color="#00E676" />
+                <Text style={styles.loadingText}>Đang tải thông số trận đấu...</Text>
+              </View>
+            ) : stats ? (
+              <View style={styles.statsList}>
+                <StatBar
+                  label="Kiểm soát bóng"
+                  homeValue={stats.home_possession}
+                  awayValue={stats.away_possession}
+                  isPercentage
+                />
+                <StatBar
+                  label="Tổng số cú sút"
+                  homeValue={stats.home_shots}
+                  awayValue={stats.away_shots}
+                />
+                <StatBar
+                  label="Sút trúng đích"
+                  homeValue={stats.home_shots_on_target}
+                  awayValue={stats.away_shots_on_target}
+                />
+                <StatBar
+                  label="Phạt góc"
+                  homeValue={stats.home_corners}
+                  awayValue={stats.away_corners}
+                />
+                <StatBar
+                  label="Phạm lỗi"
+                  homeValue={stats.home_fouls}
+                  awayValue={stats.away_fouls}
+                />
+              </View>
+            ) : (
+              <Text style={styles.emptyText}>
+                Chưa có dữ liệu thống kê cho trận đấu này.
+              </Text>
+            )}
           </View>
         ) : (
           <View style={styles.sectionCard}>
@@ -188,174 +236,57 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
     </SafeAreaView>
   );
 };
- 
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F9FA',
-  },
+  container: { flex: 1, backgroundColor: '#121212' },
   header: {
-    height: 54,
+    height: 50,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9ECEF',
-    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    backgroundColor: '#1E1E1E',
   },
-  backButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  backButtonText: {
-    fontSize: 16,
-    color: '#007AFF',
-    fontWeight: 'bold',
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#212529',
-    flex: 1,
-    textAlign: 'center',
-  },
-  content: {
-    padding: 16,
-  },
+  backButton: { width: 70 },
+  backButtonText: { color: '#00E676', fontSize: 16, fontWeight: '600' },
+  headerTitle: { color: '#FFF', fontSize: 16, fontWeight: 'bold', flex: 1, textAlign: 'center' },
+  content: { padding: 16 },
   scoreboardCard: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#1E1E1E',
     borderRadius: 12,
     padding: 16,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 16,
-    elevation: 2,
   },
-  teamContainer: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  teamLogo: {
-    width: 52,
-    height: 52,
-    resizeMode: 'contain',
-    marginBottom: 8,
-  },
+  teamContainer: { flex: 1, alignItems: 'center' },
+  teamLogo: { width: 48, height: 48, resizeMode: 'contain', marginBottom: 6 },
   logoPlaceholder: {
-    backgroundColor: '#E9ECEF',
-    borderRadius: 26,
+    borderRadius: 24,
+    backgroundColor: '#333',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  logoText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#6C757D',
-  },
-  teamName: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#212529',
-    textAlign: 'center',
-  },
-  scoreCenter: {
-    paddingHorizontal: 8,
-    alignItems: 'center',
-  },
-  scoreText: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#212529',
-  },
-  vsText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#868E96',
-  },
-  timeText: {
-    fontSize: 11,
-    color: '#495057',
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  statusBadge: {
-    fontSize: 10,
-    color: '#007AFF',
-    fontWeight: 'bold',
-    marginTop: 4,
-  },
-  liveBadge: {
-    color: '#FF3B30',
-  },
-  sectionCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    elevation: 2,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#212529',
-    marginBottom: 14,
-  },
-  statRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F3F5',
-  },
-  statLabel: {
-    fontSize: 13,
-    color: '#6C757D',
-  },
-  statValue: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#212529',
-  },
-  subText: {
-    fontSize: 13,
-    color: '#6C757D',
-    marginBottom: 8,
-  },
-  predictionBar: {
-    flexDirection: 'row',
-    height: 32,
-    borderRadius: 8,
-    overflow: 'hidden',
-    marginBottom: 16,
-  },
-  predSegment: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  predText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  infoBox: {
-    backgroundColor: '#F8F9FA',
-    padding: 12,
-    borderRadius: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: '#007AFF',
-  },
-  infoTitle: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: '#212529',
-    marginBottom: 4,
-  },
-  infoContent: {
-    fontSize: 12,
-    color: '#495057',
-    lineHeight: 18,
-  },
+  logoText: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
+  teamName: { color: '#FFF', fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  scoreCenter: { alignItems: 'center', paddingHorizontal: 12 },
+  scoreText: { color: '#00E676', fontSize: 22, fontWeight: 'bold' },
+  vsText: { color: '#888', fontSize: 18, fontWeight: 'bold' },
+  timeText: { color: '#AAA', fontSize: 11, marginTop: 4 },
+  statusBadge: { color: '#888', fontSize: 10, marginTop: 4, fontWeight: 'bold' },
+  liveBadge: { color: '#FF3B30' },
+  sectionCard: { backgroundColor: '#1E1E1E', borderRadius: 12, padding: 16 },
+  sectionTitle: { color: '#FFF', fontSize: 15, fontWeight: 'bold', marginBottom: 12 },
+  statsList: { marginTop: 4 },
+  loadingBox: { padding: 20, alignItems: 'center' },
+  loadingText: { color: '#AAA', marginTop: 8, fontSize: 13 },
+  emptyText: { color: '#888', fontSize: 13, textAlign: 'center', paddingVertical: 12 },
+  subText: { color: '#AAA', fontSize: 12, marginBottom: 8 },
+  predictionBar: { height: 24, flexDirection: 'row', borderRadius: 4, overflow: 'hidden', marginBottom: 16 },
+  predSegment: { justifyContent: 'center', alignItems: 'center' },
+  predText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
+  infoBox: { backgroundColor: '#2A2A2A', padding: 12, borderRadius: 8 },
+  infoTitle: { color: '#FFF', fontSize: 13, fontWeight: 'bold', marginBottom: 4 },
+  infoContent: { color: '#AAA', fontSize: 12, lineHeight: 18 },
 });

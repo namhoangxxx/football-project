@@ -1,6 +1,6 @@
 export interface Match {
   id?: number;
-  event_id?: number | string;
+  event_id: string | number;
   home_team: string;
   away_team: string;
   home_team_id: number;
@@ -12,7 +12,6 @@ export interface Match {
   match_time?: string;
   home_icon?: string | null;
   away_icon?: string | null;
-  created_at?: string;
 }
 
 export interface StandingRow {
