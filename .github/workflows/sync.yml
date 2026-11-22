@@ -1,20 +1,19 @@
-name: Auto Sync Football Matches
+name: Sync Matches & Details
 
 on:
   schedule:
-    # Chạy tự động mỗi 15 phút
-    - cron: '*/15 * * * *'
-  workflow_dispatch: # Cho phép bấm nút chạy thủ công
+    - cron: '0 1 * * *'
+  workflow_dispatch:
 
 jobs:
   sync-job:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -22,7 +21,21 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests supabase
+          pip install requests supabase python-dotenv
 
-      - name: Run Football Sync Script
-        run: python sync_matches.py
+      - name: Sync Matches List
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          FOOTBALL_API_KEY: ${{ secrets.FOOTBALL_API_KEY }}
+        run: |
+          python sync_matches.py
+
+      - name: Sync Match Details, Events & Lineups
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+        run: |
+          python sync_match_details.py

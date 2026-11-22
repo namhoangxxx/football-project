@@ -2,23 +2,26 @@ import os
 import requests
 import time
 from datetime import datetime, timedelta, timezone
+from dotenv import load_dotenv
 from supabase import create_client, Client
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://pgwrrhvijrjcszihswnm.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_secret_Ev9Fpxq-vhV_ntr5Z5VE0A_7XldegTm")
-FOOTBALL_API_KEY = os.environ.get("FOOTBALL_API_KEY", "35d5e00fd47d4770895bcf02b6e76d0b")
+load_dotenv()
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
+FOOTBALL_API_KEY = os.environ.get("FOOTBALL_API_KEY", "").strip()
+
+if not SUPABASE_URL or not SUPABASE_KEY or not FOOTBALL_API_KEY:
+    raise ValueError("Thiếu biến môi trường SUPABASE_URL, SUPABASE_KEY hoặc FOOTBALL_API_KEY!")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 ALLOWED_COMPETITIONS = ['PL', 'PD', 'SA', 'BL1', 'FL1', 'CL', 'EL', 'ECL']
 
 def sync_football_data():
     competitions_param = ",".join(ALLOWED_COMPETITIONS)
-    headers = { 'X-Auth-Token': FOOTBALL_API_KEY }
+    headers = {'X-Auth-Token': FOOTBALL_API_KEY}
 
-    # Dùng chuẩn UTC để không bao giờ bị lệch múi giờ
     now_utc = datetime.now(timezone.utc)
-
-    # Quét 3 chặng phủ từ 15 ngày trước tới 9 ngày tới (mỗi chặng <= 9 ngày để không lỗi HTTP 400)
     date_ranges = [
         (now_utc - timedelta(days=15), now_utc - timedelta(days=7)),
         (now_utc - timedelta(days=6), now_utc + timedelta(days=1)),
@@ -46,7 +49,6 @@ def sync_football_data():
             for match in matches:
                 status = match.get('status', 'TIMED')
                 score_obj = match.get('score', {})
-                
                 full_time = score_obj.get('fullTime', {})
                 reg_time = score_obj.get('regularTime', {})
                 

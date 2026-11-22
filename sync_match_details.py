@@ -1,36 +1,38 @@
 import os
 import requests
 import time
-from datetime import datetime
+from dotenv import load_dotenv
 from supabase import create_client, Client
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://pgwrrhvijrjcszihswnm.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_secret_Ev9Fpxq-vhV_ntr5Z5VE0A_7XldegTm")
-API_FOOTBALL_KEY = "f8640e0e945a8b02c168ea70013f9d2f"
+load_dotenv()
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
+API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY", "").strip()
+
+if not SUPABASE_URL or not SUPABASE_KEY or not API_FOOTBALL_KEY:
+    raise ValueError("Thiếu biến môi trường SUPABASE_URL, SUPABASE_KEY hoặc API_FOOTBALL_KEY!")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 headers_af = {'x-apisports-key': API_FOOTBALL_KEY}
 
 def fetch_api_football(url: str):
-    """ Hàm fetch API-Football an toàn với cơ chế xử lý Rate Limit """
     try:
         res = requests.get(url, headers=headers_af, timeout=10)
         if res.status_code == 200:
             data = res.json()
             if data.get('errors') and ('rateLimit' in data['errors'] or 'requests' in str(data['errors'])):
-                print("  ⏳ Dính Rate Limit API-Football! Đang tạm dừng 20 giây...")
-                time.sleep(20)
-                return None
+                print("  ⏳ Dính Rate Limit API-Football! Dừng phiên sync để bảo toàn quota.")
+                return "RATE_LIMIT"
             return data.get('response', [])
         elif res.status_code == 429:
-            print("  ⏳ Dính HTTP 429! Tạm dừng 20s...")
-            time.sleep(20)
+            print("  ⏳ Dính HTTP 429! Dừng phiên sync.")
+            return "RATE_LIMIT"
     except Exception as e:
         print(f"  ⚠️ Lỗi kết nối API: {e}")
     return None
 
-def get_api_team_id(fd_team_id: int) -> int:
-    """ Tra cứu API-Football ID từ bảng team_map theo football_data_id """
+def get_api_team_id(fd_team_id: int):
     try:
         res = supabase.table('team_map').select('api_football_id').eq('football_data_id', fd_team_id).execute()
         if res.data and len(res.data) > 0:
@@ -42,8 +44,6 @@ def get_api_team_id(fd_team_id: int) -> int:
 def sync_match_details():
     print("🚀 [START] Bắt đầu quét các trận đấu đã FINISHED trên Supabase...")
 
-    # 1. Lấy danh sách các trận đã FINISHED chưa có hoặc thiếu cache
-    # Ưu tiên lấy 20 trận kết thúc gần nhất
     matches_res = supabase.table('matches') \
         .select('event_id, home_team, away_team, home_team_id, match_time, status') \
         .eq('status', 'FINISHED') \
@@ -61,11 +61,10 @@ def sync_match_details():
         home_name = m['home_team']
         away_name = m['away_team']
         home_fd_id = m['home_team_id']
-        match_time = m['match_time'] # Định dạng ISO / Date
+        match_time = m['match_time']
 
         print(f"[{idx}/{len(matches)}] Trận: {home_name} vs {away_name} (ID: {event_id})")
 
-        # 2. Kiểm tra xem trận này đã đủ Cache trên DB chưa
         cache_stats = supabase.table('match_details').select('event_id').eq('event_id', event_id).execute()
         cache_events = supabase.table('match_events').select('event_id').eq('event_id', event_id).execute()
         cache_lineups = supabase.table('match_lineups').select('event_id').eq('event_id', event_id).execute()
@@ -78,18 +77,17 @@ def sync_match_details():
             print("  ⚡ Đã có đủ Cache (Stats + Events + Lineups) -> Bỏ qua!")
             continue
 
-        # 3. Lấy API-Football ID của đội nhà
         af_home_id = get_api_team_id(home_fd_id)
         if not af_home_id:
             print(f"  ❌ Đội {home_name} (FD ID: {home_fd_id}) chưa có trong team_map -> Bỏ qua!")
             continue
 
-        # Đổi ngày về dạng YYYY-MM-DD
         date_str = match_time.split('T')[0] if 'T' in match_time else match_time[:10]
 
-        # 4. Tìm Fixture ID bên API-Football
         fixture_url = f"https://v3.football.api-sports.io/fixtures?team={af_home_id}&date={date_str}"
         fixtures = fetch_api_football(fixture_url)
+        if fixtures == "RATE_LIMIT":
+            break
         time.sleep(2)
 
         if not fixtures:
@@ -99,12 +97,17 @@ def sync_match_details():
         fixture_id = fixtures[0]['fixture']['id']
         print(f"  🎯 Tìm thấy Fixture ID: {fixture_id}")
 
-        # 5. Fetch & Save MATCH STATS
         if not has_stats:
             stats_data = fetch_api_football(f"https://v3.football.api-sports.io/fixtures/statistics?fixture={fixture_id}")
+            if stats_data == "RATE_LIMIT":
+                break
             if stats_data and len(stats_data) >= 2:
-                team1_stats = {s['type']: s['value'] for s in stats_data[0]['statistics']}
-                team2_stats = {s['type']: s['value'] for s in stats_data[1]['statistics']}
+                is_first_home = stats_data[0]['team']['id'] == af_home_id
+                home_obj = stats_data[0] if is_first_home else stats_data[1]
+                away_obj = stats_data[1] if is_first_home else stats_data[0]
+
+                team1_stats = {s['type']: s['value'] for s in home_obj['statistics']}
+                team2_stats = {s['type']: s['value'] for s in away_obj['statistics']}
 
                 def parse_val(val):
                     if val is None: return 0
@@ -128,9 +131,10 @@ def sync_match_details():
                 print("  ✅ [Saved] Match Stats")
             time.sleep(2)
 
-        # 6. Fetch & Save MATCH EVENTS (Bàn thắng, thẻ phạt, thay người)
         if not has_events:
             events_data = fetch_api_football(f"https://v3.football.api-sports.io/fixtures/events?fixture={fixture_id}")
+            if events_data == "RATE_LIMIT":
+                break
             if events_data is not None:
                 supabase.table('match_events').upsert([{
                     'event_id': event_id,
@@ -139,9 +143,10 @@ def sync_match_details():
                 print(f"  ✅ [Saved] Events ({len(events_data)} sự kiện)")
             time.sleep(2)
 
-        # 7. Fetch & Save MATCH LINEUPS (Đội hình ra sân)
         if not has_lineups:
             lineups_data = fetch_api_football(f"https://v3.football.api-sports.io/fixtures/lineups?fixture={fixture_id}")
+            if lineups_data == "RATE_LIMIT":
+                break
             if lineups_data is not None:
                 supabase.table('match_lineups').upsert([{
                     'event_id': event_id,
@@ -151,7 +156,6 @@ def sync_match_details():
             time.sleep(2)
 
         synced_count += 1
-        # Giữ delay để tránh quá 10 req/phút
         time.sleep(4)
 
     print(f"\n🎉 [COMPLETE] Đã hoàn thành sync chi tiết cho {synced_count} trận đấu!")
