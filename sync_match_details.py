@@ -94,7 +94,7 @@ def sync_match_details():
         .select('event_id, home_team, away_team, home_team_id, away_team_id, league, match_time, status') \
         .eq('status', 'FINISHED') \
         .order('match_time', desc=True) \
-        .limit(25) \
+        .limit(50) \
         .execute()
 
     matches = matches_res.data or []
