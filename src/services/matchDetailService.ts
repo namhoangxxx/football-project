@@ -1,5 +1,5 @@
 import { MatchEventItem, MatchStats, TeamLineup } from '../types/matchDetail';
-import { fetchMatchStatsByNameAndDate } from './rapidApiFootball';
+import { MatchTeamIdentities, TeamIdentity } from '../types/tactical';
 
 const SUPABASE_URL = 'https://pgwrrhvijrjcszihswnm.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_01cdBMzHDEs5fVjPY10DRg_iONp1RQE';
@@ -10,33 +10,68 @@ const supaHeaders = {
   'Content-Type': 'application/json',
 };
 
+export const getMatchTeamIdentities = async (
+  homeTeamId: number,
+  awayTeamId: number,
+  fallbackHomeName: string,
+  fallbackAwayName: string
+): Promise<MatchTeamIdentities> => {
+  const defaultResult: MatchTeamIdentities = {
+    home: { footballDataId: homeTeamId, teamName: fallbackHomeName },
+    away: { footballDataId: awayTeamId, teamName: fallbackAwayName },
+  };
+
+  try {
+    const ids = [homeTeamId, awayTeamId].filter((id) => Boolean(id));
+    if (ids.length === 0) return defaultResult;
+
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/team_map?football_data_id=in.(${ids.join(',')})&select=football_data_id,team_name,espn_id,espn_name,api_football_id`,
+      { method: 'GET', headers: supaHeaders }
+    );
+
+    if (!res.ok) return defaultResult;
+    const rows = await res.json();
+    if (!Array.isArray(rows) || rows.length === 0) return defaultResult;
+
+    const mapRow = (row: any, fallbackId: number, fallbackName: string): TeamIdentity => {
+      if (!row) return { footballDataId: fallbackId, teamName: fallbackName };
+      return {
+        footballDataId: row.football_data_id ?? fallbackId,
+        espnId: row.espn_id != null ? Number(row.espn_id) : undefined,
+        apiFootballId: row.api_football_id != null ? Number(row.api_football_id) : undefined,
+        teamName: row.team_name || fallbackName,
+        espnName: row.espn_name || undefined,
+      };
+    };
+
+    const homeRow = rows.find((r: any) => Number(r.football_data_id) === Number(homeTeamId));
+    const awayRow = rows.find((r: any) => Number(r.football_data_id) === Number(awayTeamId));
+
+    return {
+      home: mapRow(homeRow, homeTeamId, fallbackHomeName),
+      away: mapRow(awayRow, awayTeamId, fallbackAwayName),
+    };
+  } catch (error) {
+    console.error('Lỗi getMatchTeamIdentities:', error);
+    return defaultResult;
+  }
+};
+
 export const getMatchStats = async (
-  eventId: string | number,
-  homeTeam: string,
-  matchTime: string,
-  status: string,
-  homeTeamId?: number
+  eventId: string | number
 ): Promise<MatchStats | null> => {
   try {
-    const isFinished = status === 'FINISHED';
     const cleanEventId = String(eventId).trim();
-
-    if (isFinished) {
-      const cacheRes = await fetch(
-        `${SUPABASE_URL}/rest/v1/match_details?event_id=eq.${encodeURIComponent(cleanEventId)}&select=*`,
-        { method: 'GET', headers: supaHeaders }
-      );
-      if (cacheRes.ok) {
-        const cachedData = await cacheRes.json();
-        if (cachedData && cachedData.length > 0) return cachedData[0] as MatchStats;
-      }
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/match_details?event_id=eq.${encodeURIComponent(cleanEventId)}&select=*`,
+      { method: 'GET', headers: supaHeaders }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.length > 0) return data[0] as MatchStats;
     }
-
-    const stats = await fetchMatchStatsByNameAndDate(homeTeam, matchTime, homeTeamId);
-    if (stats && isFinished) {
-      await saveStatsToSupabase(cleanEventId, stats);
-    }
-    return stats;
+    return null;
   } catch (error) {
     console.error('Lỗi getMatchStats:', error);
     return null;
@@ -84,34 +119,5 @@ export const getMatchLineupsFromSupabase = async (
   } catch (error) {
     console.error('Lỗi getMatchLineupsFromSupabase:', error);
     return [];
-  }
-};
-
-const saveStatsToSupabase = async (eventId: string, stats: MatchStats) => {
-  try {
-    const payload = {
-      event_id: eventId,
-      home_possession: stats.home_possession,
-      away_possession: stats.away_possession,
-      home_shots: stats.home_shots,
-      away_shots: stats.away_shots,
-      home_shots_on_target: stats.home_shots_on_target,
-      away_shots_on_target: stats.away_shots_on_target,
-      home_corners: stats.home_corners,
-      away_corners: stats.away_corners,
-      home_fouls: stats.home_fouls,
-      away_fouls: stats.away_fouls,
-    };
-
-    await fetch(`${SUPABASE_URL}/rest/v1/match_details?on_conflict=event_id`, {
-      method: 'POST',
-      headers: {
-        ...supaHeaders,
-        Prefer: 'resolution=merge-duplicates,return=minimal',
-      },
-      body: JSON.stringify(payload),
-    });
-  } catch (err) {
-    console.error('Lỗi saveStatsToSupabase:', err);
   }
 };

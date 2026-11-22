@@ -12,13 +12,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MatchEventsTab } from '../components/MatchEventsTab';
 import { MatchLineupsTab } from '../components/MatchLineupsTab';
 import { MatchStatsTab } from '../components/MatchStatsTab';
+import { MatchTacticsTab } from '../components/MatchTacticsTab';
 import {
   getMatchEventsFromSupabase,
   getMatchLineupsFromSupabase,
   getMatchStats,
+  getMatchTeamIdentities,
 } from '../services/matchDetailService';
 import { Match } from '../types/football';
 import { MatchEventItem, MatchStats, TeamLineup } from '../types/matchDetail';
+import { MatchTeamIdentities } from '../types/tactical';
 
 interface MatchDetailProps {
   match: Match;
@@ -26,7 +29,7 @@ interface MatchDetailProps {
   onSelectClub: (teamId: number, teamName: string, logoUrl?: string) => void;
 }
 
-type DetailTab = 'STATS' | 'EVENTS' | 'LINEUPS';
+type DetailTab = 'STATS' | 'TACTICS' | 'EVENTS' | 'LINEUPS';
 
 export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
   match,
@@ -37,6 +40,9 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
   const [stats, setStats] = useState<MatchStats | null>(null);
   const [events, setEvents] = useState<MatchEventItem[]>([]);
   const [lineups, setLineups] = useState<TeamLineup[]>([]);
+  const [teamIdentities, setTeamIdentities] = useState<MatchTeamIdentities | undefined>(
+    undefined
+  );
   const [loading, setLoading] = useState<boolean>(false);
 
   const isFinishedOrLive =
@@ -61,21 +67,22 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
     if (isFinishedOrLive) {
       setLoading(true);
       Promise.all([
-        getMatchStats(
-          match.event_id,
-          match.home_team,
-          match.match_time || '',
-          match.status,
-          match.home_team_id
-        ),
+        getMatchStats(match.event_id),
         getMatchEventsFromSupabase(match.event_id),
         getMatchLineupsFromSupabase(match.event_id),
+        getMatchTeamIdentities(
+          match.home_team_id,
+          match.away_team_id,
+          match.home_team,
+          match.away_team
+        ),
       ])
-        .then(([statsData, eventsData, lineupsData]) => {
+        .then(([statsData, eventsData, lineupsData, identitiesData]) => {
           if (isMounted) {
             setStats(statsData);
             setEvents(eventsData);
             setLineups(lineupsData);
+            setTeamIdentities(identitiesData);
             setLoading(false);
           }
         })
@@ -178,14 +185,20 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
         {isFinishedOrLive ? (
           <>
             <View style={styles.subTabContainer}>
-              {(['STATS', 'EVENTS', 'LINEUPS'] as DetailTab[]).map((tab) => (
+              {(['STATS', 'TACTICS', 'EVENTS', 'LINEUPS'] as DetailTab[]).map((tab) => (
                 <TouchableOpacity
                   key={tab}
                   style={[styles.subTab, activeTab === tab && styles.activeSubTab]}
                   onPress={() => setActiveTab(tab)}
                 >
                   <Text style={[styles.subTabText, activeTab === tab && styles.activeSubTabText]}>
-                    {tab === 'STATS' ? '📊 Thông số' : tab === 'EVENTS' ? '⏱ Diễn biến' : '👕 Đội hình'}
+                    {tab === 'STATS'
+                      ? '📊 Thông số'
+                      : tab === 'TACTICS'
+                      ? '📈 Chiến thuật'
+                      : tab === 'EVENTS'
+                      ? '⏱ Diễn biến'
+                      : '👕 Đội hình'}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -199,6 +212,15 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
             ) : (
               <>
                 {activeTab === 'STATS' && <MatchStatsTab stats={stats} />}
+                {activeTab === 'TACTICS' && (
+                  <MatchTacticsTab
+                    match={match}
+                    stats={stats}
+                    events={events}
+                    lineups={lineups}
+                    teamIdentities={teamIdentities}
+                  />
+                )}
                 {activeTab === 'EVENTS' && <MatchEventsTab events={events} />}
                 {activeTab === 'LINEUPS' && <MatchLineupsTab lineups={lineups} />}
               </>
@@ -269,7 +291,7 @@ const styles = StyleSheet.create({
   subTabContainer: { flexDirection: 'row', backgroundColor: '#1E1E1E', borderRadius: 8, padding: 4, marginBottom: 12 },
   subTab: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6 },
   activeSubTab: { backgroundColor: '#2C2C2C' },
-  subTabText: { color: '#888', fontSize: 12, fontWeight: '600' },
+  subTabText: { color: '#888', fontSize: 11, fontWeight: '600' },
   activeSubTabText: { color: '#00E676' },
   loadingBox: { backgroundColor: '#1E1E1E', borderRadius: 12, padding: 20, alignItems: 'center' },
   loadingText: { color: '#AAA', marginTop: 8, fontSize: 13 },
