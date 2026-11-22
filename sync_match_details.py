@@ -1,6 +1,7 @@
 import os
 import requests
 import time
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -8,47 +9,92 @@ load_dotenv()
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "").strip()
-API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY", "").strip()
 
-if not SUPABASE_URL or not SUPABASE_KEY or not API_FOOTBALL_KEY:
-    raise ValueError("Thiếu biến môi trường SUPABASE_URL, SUPABASE_KEY hoặc API_FOOTBALL_KEY!")
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise ValueError("Thiếu SUPABASE_URL hoặc SUPABASE_KEY trong biến môi trường / .env!")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-headers_af = {'x-apisports-key': API_FOOTBALL_KEY}
 
-def fetch_api_football(url: str):
-    try:
-        res = requests.get(url, headers=headers_af, timeout=10)
-        if res.status_code == 200:
-            data = res.json()
-            if data.get('errors') and ('rateLimit' in data['errors'] or 'requests' in str(data['errors'])):
-                print("  ⏳ Dính Rate Limit API-Football! Dừng phiên sync để bảo toàn quota.")
-                return "RATE_LIMIT"
-            return data.get('response', [])
-        elif res.status_code == 429:
-            print("  ⏳ Dính HTTP 429! Dừng phiên sync.")
-            return "RATE_LIMIT"
-    except Exception as e:
-        print(f"  ⚠️ Lỗi kết nối API: {e}")
-    return None
+LEAGUE_SLUG_MAP = {
+    'Premier League': 'eng.1',
+    'Primera Division': 'esp.1',
+    'La Liga': 'esp.1',
+    'Serie A': 'ita.1',
+    'Bundesliga': 'ger.1',
+    'Ligue 1': 'fra.1',
+    'UEFA Champions League': 'uefa.champions',
+    'UEFA Europa League': 'uefa.europa',
+    'UEFA Conference League': 'uefa.europa.conf',
+}
 
-def get_api_team_id(fd_team_id: int):
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+}
+
+
+def get_espn_team_id(fd_team_id: int):
+    if not fd_team_id:
+        return None
     try:
-        res = supabase.table('team_map').select('api_football_id').eq('football_data_id', fd_team_id).execute()
+        res = supabase.table('team_map').select('espn_id').eq('football_data_id', fd_team_id).execute()
         if res.data and len(res.data) > 0:
-            return res.data[0]['api_football_id']
+            return res.data[0].get('espn_id')
     except Exception as e:
-        print(f"⚠️ Lỗi lookup team_map cho team {fd_team_id}: {e}")
+        print(f"  ⚠️ Lỗi đọc team_map: {e}")
     return None
+
+
+def find_espn_event_id(league_slug: str, match_time_iso: str, home_espn_id: int, away_espn_id: int):
+    try:
+        dt = datetime.fromisoformat(match_time_iso.replace('Z', '+00:00'))
+    except Exception:
+        dt = datetime.strptime(match_time_iso[:10], '%Y-%m-%d')
+
+    dates_to_check = [
+        dt.strftime('%Y%m%d'),
+        (dt - timedelta(days=1)).strftime('%Y%m%d'),
+    ]
+
+    for date_str in dates_to_check:
+        url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{league_slug}/scoreboard?dates={date_str}"
+        try:
+            res = requests.get(url, headers=HEADERS, timeout=10)
+            if res.status_code != 200:
+                continue
+            for ev in res.json().get('events', []):
+                competitions = ev.get('competitions', [])
+                if not competitions:
+                    continue
+                competitors = competitions[0].get('competitors', [])
+                espn_home_id = next((int(c['team']['id']) for c in competitors if c.get('homeAway') == 'home'), None)
+                espn_away_id = next((int(c['team']['id']) for c in competitors if c.get('homeAway') == 'away'), None)
+
+                if (home_espn_id and espn_home_id == home_espn_id) or (away_espn_id and espn_away_id == away_espn_id):
+                    return ev['id']
+        except Exception as e:
+            print(f"  ⚠️ Lỗi scoreboard ESPN ({league_slug} - {date_str}): {e}")
+    return None
+
+
+def parse_stat_value(stats_list: list, stat_name: str) -> int:
+    for item in stats_list:
+        if item.get('name') == stat_name:
+            val = str(item.get('displayValue', '0')).replace('%', '').strip()
+            try:
+                return int(float(val))
+            except ValueError:
+                return 0
+    return 0
+
 
 def sync_match_details():
-    print("🚀 [START] Bắt đầu quét các trận đấu đã FINISHED trên Supabase...")
+    print("🚀 [START] Đồng bộ chi tiết trận đấu (Stats + Events + Lineups) theo ESPN ID...\n")
 
     matches_res = supabase.table('matches') \
-        .select('event_id, home_team, away_team, home_team_id, match_time, status') \
+        .select('event_id, home_team, away_team, home_team_id, away_team_id, league, match_time, status') \
         .eq('status', 'FINISHED') \
         .order('match_time', desc=True) \
-        .limit(20) \
+        .limit(25) \
         .execute()
 
     matches = matches_res.data or []
@@ -60,105 +106,158 @@ def sync_match_details():
         event_id = str(m['event_id'])
         home_name = m['home_team']
         away_name = m['away_team']
-        home_fd_id = m['home_team_id']
+        league_name = m.get('league', '')
         match_time = m['match_time']
 
-        print(f"[{idx}/{len(matches)}] Trận: {home_name} vs {away_name} (ID: {event_id})")
+        print(f"[{idx}/{len(matches)}] {home_name} vs {away_name} ({league_name})")
 
-        cache_stats = supabase.table('match_details').select('event_id').eq('event_id', event_id).execute()
-        cache_events = supabase.table('match_events').select('event_id').eq('event_id', event_id).execute()
-        cache_lineups = supabase.table('match_lineups').select('event_id').eq('event_id', event_id).execute()
-
-        has_stats = len(cache_stats.data) > 0
-        has_events = len(cache_events.data) > 0
-        has_lineups = len(cache_lineups.data) > 0
+        has_stats = len(supabase.table('match_details').select('event_id').eq('event_id', event_id).execute().data) > 0
+        has_events = len(supabase.table('match_events').select('event_id').eq('event_id', event_id).execute().data) > 0
+        has_lineups = len(supabase.table('match_lineups').select('event_id').eq('event_id', event_id).execute().data) > 0
 
         if has_stats and has_events and has_lineups:
-            print("  ⚡ Đã có đủ Cache (Stats + Events + Lineups) -> Bỏ qua!")
+            print("  ⚡ Đã có đủ Cache -> Bỏ qua!")
             continue
 
-        af_home_id = get_api_team_id(home_fd_id)
-        if not af_home_id:
-            print(f"  ❌ Đội {home_name} (FD ID: {home_fd_id}) chưa có trong team_map -> Bỏ qua!")
+        league_slug = LEAGUE_SLUG_MAP.get(league_name)
+        if not league_slug:
+            print(f"  ⚠️ Giải '{league_name}' chưa hỗ trợ mapping ESPN -> Bỏ qua!")
             continue
 
-        date_str = match_time.split('T')[0] if 'T' in match_time else match_time[:10]
+        home_espn_id = get_espn_team_id(m.get('home_team_id'))
+        away_espn_id = get_espn_team_id(m.get('away_team_id'))
 
-        fixture_url = f"https://v3.football.api-sports.io/fixtures?team={af_home_id}&date={date_str}"
-        fixtures = fetch_api_football(fixture_url)
-        if fixtures == "RATE_LIMIT":
-            break
-        time.sleep(2)
-
-        if not fixtures:
-            print(f"  ❌ Không tìm thấy fixture tương ứng trên API-Football ngày {date_str}")
+        if not home_espn_id and not away_espn_id:
+            print(f"  ❌ Chưa có espn_id trong team_map cho {home_name} / {away_name}")
             continue
 
-        fixture_id = fixtures[0]['fixture']['id']
-        print(f"  🎯 Tìm thấy Fixture ID: {fixture_id}")
+        espn_id = find_espn_event_id(league_slug, match_time, home_espn_id, away_espn_id)
+        if not espn_id:
+            print("  ❌ Không tìm thấy trận tương ứng trên ESPN.")
+            continue
 
+        summary_url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{league_slug}/summary?event={espn_id}"
+        try:
+            res = requests.get(summary_url, headers=HEADERS, timeout=12)
+            if res.status_code != 200:
+                print(f"  ❌ Lỗi tải summary ESPN (HTTP {res.status_code})")
+                continue
+            summary = res.json()
+        except Exception as e:
+            print(f"  ⚠️ Lỗi kết nối summary ESPN: {e}")
+            continue
+
+        # 1. MATCH STATS
         if not has_stats:
-            stats_data = fetch_api_football(f"https://v3.football.api-sports.io/fixtures/statistics?fixture={fixture_id}")
-            if stats_data == "RATE_LIMIT":
-                break
-            if stats_data and len(stats_data) >= 2:
-                is_first_home = stats_data[0]['team']['id'] == af_home_id
-                home_obj = stats_data[0] if is_first_home else stats_data[1]
-                away_obj = stats_data[1] if is_first_home else stats_data[0]
-
-                team1_stats = {s['type']: s['value'] for s in home_obj['statistics']}
-                team2_stats = {s['type']: s['value'] for s in away_obj['statistics']}
-
-                def parse_val(val):
-                    if val is None: return 0
-                    if isinstance(val, str) and '%' in val: return int(val.replace('%', ''))
-                    return int(val)
+            box_teams = summary.get('boxscore', {}).get('teams', [])
+            if len(box_teams) >= 2:
+                home_stats = box_teams[0].get('statistics', []) if box_teams[0].get('homeAway') == 'home' else box_teams[1].get('statistics', [])
+                away_stats = box_teams[1].get('statistics', []) if box_teams[1].get('homeAway') == 'away' else box_teams[0].get('statistics', [])
 
                 payload_stats = {
                     'event_id': event_id,
-                    'home_possession': parse_val(team1_stats.get('Ball Possession', 0)),
-                    'away_possession': parse_val(team2_stats.get('Ball Possession', 0)),
-                    'home_shots': parse_val(team1_stats.get('Total Shots', 0)),
-                    'away_shots': parse_val(team2_stats.get('Total Shots', 0)),
-                    'home_shots_on_target': parse_val(team1_stats.get('Shots on Goal', 0)),
-                    'away_shots_on_target': parse_val(team2_stats.get('Shots on Goal', 0)),
-                    'home_corners': parse_val(team1_stats.get('Corner Kicks', 0)),
-                    'away_corners': parse_val(team2_stats.get('Corner Kicks', 0)),
-                    'home_fouls': parse_val(team1_stats.get('Fouls', 0)),
-                    'away_fouls': parse_val(team2_stats.get('Fouls', 0)),
+                    'home_possession': parse_stat_value(home_stats, 'possessionPct'),
+                    'away_possession': parse_stat_value(away_stats, 'possessionPct'),
+                    'home_shots': parse_stat_value(home_stats, 'totalShots'),
+                    'away_shots': parse_stat_value(away_stats, 'totalShots'),
+                    'home_shots_on_target': parse_stat_value(home_stats, 'shotsOnTarget'),
+                    'away_shots_on_target': parse_stat_value(away_stats, 'shotsOnTarget'),
+                    'home_corners': parse_stat_value(home_stats, 'wonCorners'),
+                    'away_corners': parse_stat_value(away_stats, 'wonCorners'),
+                    'home_fouls': parse_stat_value(home_stats, 'foulsCommitted'),
+                    'away_fouls': parse_stat_value(away_stats, 'foulsCommitted'),
                 }
                 supabase.table('match_details').upsert([payload_stats], on_conflict='event_id').execute()
                 print("  ✅ [Saved] Match Stats")
-            time.sleep(2)
 
+        # 2. MATCH EVENTS
         if not has_events:
-            events_data = fetch_api_football(f"https://v3.football.api-sports.io/fixtures/events?fixture={fixture_id}")
-            if events_data == "RATE_LIMIT":
-                break
-            if events_data is not None:
-                supabase.table('match_events').upsert([{
-                    'event_id': event_id,
-                    'events': events_data
-                }], on_conflict='event_id').execute()
-                print(f"  ✅ [Saved] Events ({len(events_data)} sự kiện)")
-            time.sleep(2)
+            key_events = summary.get('keyEvents', [])
+            formatted_events = []
+            for ev in key_events:
+                ev_type_text = ev.get('type', {}).get('text', '')
+                clock_str = ev.get('clock', {}).get('displayValue', "0'")
+                minute_num = int(''.join(filter(str.isdigit, clock_str.split('+')[0])) or 0)
+                extra_num = int(''.join(filter(str.isdigit, clock_str.split('+')[1])) or 0) if '+' in clock_str else None
 
+                mapped_type = 'Other'
+                if 'Goal' in ev_type_text or 'Penalty - Scored' in ev_type_text:
+                    mapped_type = 'Goal'
+                elif 'Card' in ev_type_text:
+                    mapped_type = 'Card'
+                elif 'Substitution' in ev_type_text:
+                    mapped_type = 'subst'
+
+                if mapped_type == 'Other':
+                    continue
+
+                participants = ev.get('participants', [])
+                player_name = participants[0].get('athlete', {}).get('displayName', '') if len(participants) > 0 else ev.get('shortText', '')
+                assist_name = participants[1].get('athlete', {}).get('displayName', None) if len(participants) > 1 and mapped_type == 'Goal' else None
+
+                formatted_events.append({
+                    'time': {'elapsed': minute_num, 'extra': extra_num},
+                    'team': {'id': 0, 'name': ev.get('team', {}).get('displayName', '')},
+                    'player': {'id': 0, 'name': player_name},
+                    'assist': {'id': None, 'name': assist_name},
+                    'type': mapped_type,
+                    'detail': ev_type_text,
+                })
+
+            supabase.table('match_events').upsert([{
+                'event_id': event_id,
+                'events': formatted_events
+            }], on_conflict='event_id').execute()
+            print(f"  ✅ [Saved] Events ({len(formatted_events)} sự kiện)")
+
+        # 3. MATCH LINEUPS
         if not has_lineups:
-            lineups_data = fetch_api_football(f"https://v3.football.api-sports.io/fixtures/lineups?fixture={fixture_id}")
-            if lineups_data == "RATE_LIMIT":
-                break
-            if lineups_data is not None:
-                supabase.table('match_lineups').upsert([{
-                    'event_id': event_id,
-                    'lineups': lineups_data
-                }], on_conflict='event_id').execute()
-                print("  ✅ [Saved] Lineups (Sơ đồ & Đội hình 2 đội)")
-            time.sleep(2)
+            rosters = summary.get('rosters', [])
+            formatted_lineups = []
+            for r in rosters:
+                team_info = r.get('team', {})
+                formation = r.get('formation', 'N/A')
+                start_xi = []
+                subs = []
+
+                for entry in r.get('roster', []):
+                    athlete = entry.get('athlete', {})
+                    player_obj = {
+                        'player': {
+                            'id': int(athlete.get('id', 0) or 0),
+                            'name': athlete.get('displayName', ''),
+                            'number': int(entry.get('jersey', 0) or 0),
+                            'pos': entry.get('position', {}).get('abbreviation', ''),
+                            'grid': None,
+                        }
+                    }
+                    if entry.get('starter'):
+                        start_xi.append(player_obj)
+                    else:
+                        subs.append(player_obj)
+
+                formatted_lineups.append({
+                    'team': {
+                        'id': int(team_info.get('id', 0) or 0),
+                        'name': team_info.get('displayName', ''),
+                        'logo': team_info.get('logo', ''),
+                    },
+                    'formation': formation,
+                    'startXI': start_xi,
+                    'substitutes': subs,
+                })
+
+            supabase.table('match_lineups').upsert([{
+                'event_id': event_id,
+                'lineups': formatted_lineups
+            }], on_conflict='event_id').execute()
+            print("  ✅ [Saved] Lineups")
 
         synced_count += 1
-        time.sleep(4)
+        time.sleep(0.8)
 
-    print(f"\n🎉 [COMPLETE] Đã hoàn thành sync chi tiết cho {synced_count} trận đấu!")
+    print(f"\n🎉 [COMPLETE] Đã đồng bộ xong chi tiết cho {synced_count} trận đấu!")
+
 
 if __name__ == "__main__":
     sync_match_details()
