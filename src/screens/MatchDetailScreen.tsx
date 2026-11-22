@@ -9,10 +9,16 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatBar } from '../components/StatBar';
-import { getMatchStats } from '../services/matchDetailService';
+import { MatchEventsTab } from '../components/MatchEventsTab';
+import { MatchLineupsTab } from '../components/MatchLineupsTab';
+import { MatchStatsTab } from '../components/MatchStatsTab';
+import {
+  getMatchEventsFromSupabase,
+  getMatchLineupsFromSupabase,
+  getMatchStats,
+} from '../services/matchDetailService';
 import { Match } from '../types/football';
-import { MatchStats } from '../types/matchDetail';
+import { MatchEventItem, MatchStats, TeamLineup } from '../types/matchDetail';
 
 interface MatchDetailProps {
   match: Match;
@@ -20,13 +26,18 @@ interface MatchDetailProps {
   onSelectClub: (teamId: number, teamName: string, logoUrl?: string) => void;
 }
 
+type DetailTab = 'STATS' | 'EVENTS' | 'LINEUPS';
+
 export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
   match,
   onBack,
   onSelectClub,
 }) => {
+  const [activeTab, setActiveTab] = useState<DetailTab>('STATS');
   const [stats, setStats] = useState<MatchStats | null>(null);
-  const [loadingStats, setLoadingStats] = useState<boolean>(false);
+  const [events, setEvents] = useState<MatchEventItem[]>([]);
+  const [lineups, setLineups] = useState<TeamLineup[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
 
   const isFinishedOrLive =
     match.status === 'IN_PLAY' ||
@@ -48,22 +59,28 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
     let isMounted = true;
 
     if (isFinishedOrLive) {
-      setLoadingStats(true);
-      getMatchStats(
-        match.event_id,
-        match.home_team,
-        match.match_time || '',
-        match.status,
-        match.home_team_id
-      )
-        .then((data) => {
+      setLoading(true);
+      Promise.all([
+        getMatchStats(
+          match.event_id,
+          match.home_team,
+          match.match_time || '',
+          match.status,
+          match.home_team_id
+        ),
+        getMatchEventsFromSupabase(match.event_id),
+        getMatchLineupsFromSupabase(match.event_id),
+      ])
+        .then(([statsData, eventsData, lineupsData]) => {
           if (isMounted) {
-            setStats(data);
-            setLoadingStats(false);
+            setStats(statsData);
+            setEvents(eventsData);
+            setLineups(lineupsData);
+            setLoading(false);
           }
         })
         .catch(() => {
-          if (isMounted) setLoadingStats(false);
+          if (isMounted) setLoading(false);
         });
     }
 
@@ -90,16 +107,13 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
+        {/* Scoreboard */}
         <View style={styles.scoreboardCard}>
           <TouchableOpacity
             style={styles.teamContainer}
             activeOpacity={0.7}
             onPress={() =>
-              onSelectClub(
-                match.home_team_id,
-                match.home_team,
-                match.home_icon || undefined
-              )
+              onSelectClub(match.home_team_id, match.home_team, match.home_icon || undefined)
             }
           >
             {match.home_icon ? (
@@ -145,11 +159,7 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
             style={styles.teamContainer}
             activeOpacity={0.7}
             onPress={() =>
-              onSelectClub(
-                match.away_team_id,
-                match.away_team,
-                match.away_icon || undefined
-              )
+              onSelectClub(match.away_team_id, match.away_team, match.away_icon || undefined)
             }
           >
             {match.away_icon ? (
@@ -166,49 +176,34 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
         </View>
 
         {isFinishedOrLive ? (
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>📊 Thông số trận đấu</Text>
+          <>
+            <View style={styles.subTabContainer}>
+              {(['STATS', 'EVENTS', 'LINEUPS'] as DetailTab[]).map((tab) => (
+                <TouchableOpacity
+                  key={tab}
+                  style={[styles.subTab, activeTab === tab && styles.activeSubTab]}
+                  onPress={() => setActiveTab(tab)}
+                >
+                  <Text style={[styles.subTabText, activeTab === tab && styles.activeSubTabText]}>
+                    {tab === 'STATS' ? '📊 Thông số' : tab === 'EVENTS' ? '⏱ Diễn biến' : '👕 Đội hình'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
 
-            {loadingStats ? (
+            {loading ? (
               <View style={styles.loadingBox}>
                 <ActivityIndicator size="small" color="#00E676" />
-                <Text style={styles.loadingText}>Đang tải thông số trận đấu...</Text>
-              </View>
-            ) : stats ? (
-              <View style={styles.statsList}>
-                <StatBar
-                  label="Kiểm soát bóng"
-                  homeValue={stats.home_possession}
-                  awayValue={stats.away_possession}
-                  isPercentage
-                />
-                <StatBar
-                  label="Tổng số cú sút"
-                  homeValue={stats.home_shots}
-                  awayValue={stats.away_shots}
-                />
-                <StatBar
-                  label="Sút trúng đích"
-                  homeValue={stats.home_shots_on_target}
-                  awayValue={stats.away_shots_on_target}
-                />
-                <StatBar
-                  label="Phạt góc"
-                  homeValue={stats.home_corners}
-                  awayValue={stats.away_corners}
-                />
-                <StatBar
-                  label="Phạm lỗi"
-                  homeValue={stats.home_fouls}
-                  awayValue={stats.away_fouls}
-                />
+                <Text style={styles.loadingText}>Đang tải dữ liệu trận đấu...</Text>
               </View>
             ) : (
-              <Text style={styles.emptyText}>
-                Chưa có dữ liệu thống kê cho trận đấu này.
-              </Text>
+              <>
+                {activeTab === 'STATS' && <MatchStatsTab stats={stats} />}
+                {activeTab === 'EVENTS' && <MatchEventsTab events={events} />}
+                {activeTab === 'LINEUPS' && <MatchLineupsTab lineups={lineups} />}
+              </>
             )}
-          </View>
+          </>
         ) : (
           <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>🔮 Dự đoán & Phân tích</Text>
@@ -258,16 +253,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   teamContainer: { flex: 1, alignItems: 'center' },
   teamLogo: { width: 48, height: 48, resizeMode: 'contain', marginBottom: 6 },
-  logoPlaceholder: {
-    borderRadius: 24,
-    backgroundColor: '#333',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  logoPlaceholder: { borderRadius: 24, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' },
   logoText: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
   teamName: { color: '#FFF', fontSize: 13, fontWeight: '600', textAlign: 'center' },
   scoreCenter: { alignItems: 'center', paddingHorizontal: 12 },
@@ -276,12 +266,15 @@ const styles = StyleSheet.create({
   timeText: { color: '#AAA', fontSize: 11, marginTop: 4 },
   statusBadge: { color: '#888', fontSize: 10, marginTop: 4, fontWeight: 'bold' },
   liveBadge: { color: '#FF3B30' },
-  sectionCard: { backgroundColor: '#1E1E1E', borderRadius: 12, padding: 16 },
-  sectionTitle: { color: '#FFF', fontSize: 15, fontWeight: 'bold', marginBottom: 12 },
-  statsList: { marginTop: 4 },
-  loadingBox: { padding: 20, alignItems: 'center' },
+  subTabContainer: { flexDirection: 'row', backgroundColor: '#1E1E1E', borderRadius: 8, padding: 4, marginBottom: 12 },
+  subTab: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6 },
+  activeSubTab: { backgroundColor: '#2C2C2C' },
+  subTabText: { color: '#888', fontSize: 12, fontWeight: '600' },
+  activeSubTabText: { color: '#00E676' },
+  loadingBox: { backgroundColor: '#1E1E1E', borderRadius: 12, padding: 20, alignItems: 'center' },
   loadingText: { color: '#AAA', marginTop: 8, fontSize: 13 },
-  emptyText: { color: '#888', fontSize: 13, textAlign: 'center', paddingVertical: 12 },
+  sectionCard: { backgroundColor: '#1E1E1E', borderRadius: 12, padding: 16, marginBottom: 16 },
+  sectionTitle: { color: '#FFF', fontSize: 15, fontWeight: 'bold', marginBottom: 12 },
   subText: { color: '#AAA', fontSize: 12, marginBottom: 8 },
   predictionBar: { height: 24, flexDirection: 'row', borderRadius: 4, overflow: 'hidden', marginBottom: 16 },
   predSegment: { justifyContent: 'center', alignItems: 'center' },
