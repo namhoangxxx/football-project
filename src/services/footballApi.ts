@@ -9,35 +9,39 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
-/**
- * Lấy các trận LIVE & SẮP ĐÁ cho Trang Chủ (Lọc bỏ trận đã FINISHED)
- */
 export const fetchMatchesFromSupabase = async (): Promise<Match[]> => {
   try {
-    // Lấy các trận đấu có status KHÔNG PHẢI là FINISHED
-    const endpoint = `${SUPABASE_URL}/rest/v1/matches?status=neq.FINISHED&order=match_time.asc&limit=100`;
-    
-    const response = await fetch(endpoint, { method: 'GET', headers });
-    if (!response.ok) throw new Error('Không thể lấy dữ liệu từ Supabase');
-    return await response.json();
+    const [activeRes, finishedRes] = await Promise.all([
+      fetch(
+        `${SUPABASE_URL}/rest/v1/matches?status=neq.FINISHED&order=match_time.asc&limit=120`,
+        { method: 'GET', headers }
+      ),
+      fetch(
+        `${SUPABASE_URL}/rest/v1/matches?status=eq.FINISHED&order=match_time.desc&limit=120`,
+        { method: 'GET', headers }
+      ),
+    ]);
+
+    const activeData: Match[] = activeRes.ok ? await activeRes.json() : [];
+    const finishedData: Match[] = finishedRes.ok ? await finishedRes.json() : [];
+
+    return [...activeData, ...finishedData];
   } catch (error) {
     console.error('Lỗi fetchMatchesFromSupabase:', error);
     return [];
   }
 };
 
-/**
- * Lấy toàn bộ lịch sử trận đấu của 1 CLB
- */
 export const fetchClubMatchesFromSupabase = async (
   teamId: number,
   teamName?: string
 ): Promise<Match[]> => {
   try {
     if (teamId) {
-      const endpointId = `${SUPABASE_URL}/rest/v1/matches?or=(home_team_id.eq.${teamId},away_team_id.eq.${teamId})&order=match_time.desc&limit=50`;
-      const resId = await fetch(endpointId, { method: 'GET', headers });
-
+      const resId = await fetch(
+        `${SUPABASE_URL}/rest/v1/matches?or=(home_team_id.eq.${teamId},away_team_id.eq.${teamId})&order=match_time.desc&limit=50`,
+        { method: 'GET', headers }
+      );
       if (resId.ok) {
         const dataId: Match[] = await resId.json();
         if (dataId && dataId.length > 0) return dataId;
@@ -48,16 +52,16 @@ export const fetchClubMatchesFromSupabase = async (
       const cleanName = teamName
         .replace(/\b(FC|CF|BSC|SV|AFC|SSC|RB|VfB|VfL|1\.|AC)\b/gi, '')
         .trim();
-      const words = cleanName.split(' ').filter(w => w.length > 2);
-      const searchWord = words[0] || teamName;
+      const searchWord = cleanName.split(' ').filter((w) => w.length > 2)[0] || teamName;
 
-      const endpointName = `${SUPABASE_URL}/rest/v1/matches?or=(home_team.ilike.*${encodeURIComponent(
-        searchWord
-      )}*,away_team.ilike.*${encodeURIComponent(
-        searchWord
-      )}*)&order=match_time.desc&limit=50`;
-
-      const resName = await fetch(endpointName, { method: 'GET', headers });
+      const resName = await fetch(
+        `${SUPABASE_URL}/rest/v1/matches?or=(home_team.ilike.*${encodeURIComponent(
+          searchWord
+        )}*,away_team.ilike.*${encodeURIComponent(
+          searchWord
+        )}*)&order=match_time.desc&limit=50`,
+        { method: 'GET', headers }
+      );
       if (resName.ok) return await resName.json();
     }
 

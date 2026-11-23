@@ -1,19 +1,16 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Rect, Text as SvgText } from 'react-native-svg';
+import { AppIcon } from '../common/AppIcon';
 import { PitchBase } from './PitchBase';
 
 interface ThreatMatrixPitchProps {
   teamName: string;
-  grid: number[][]; // 8 hàng x 12 cột
+  grid: number[][];
   xtTotal: number;
 }
 
-export const ThreatMatrixPitch: React.FC<ThreatMatrixPitchProps> = ({
-  teamName,
-  grid,
-  xtTotal,
-}) => {
+export const ThreatMatrixPitch: React.FC<ThreatMatrixPitchProps> = ({ teamName, grid, xtTotal }) => {
   const cellW = 100 / 12;
   const cellH = 68 / 8;
 
@@ -27,7 +24,10 @@ export const ThreatMatrixPitch: React.FC<ThreatMatrixPitchProps> = ({
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>🚨 Ma trận Mối đe dọa (xT Grid 12×8)</Text>
+        <View style={styles.titleRow}>
+          <AppIcon name="alert" size={15} color="#FF5252" />
+          <Text style={styles.title}>Ma trận Mối đe dọa (xT Grid 12×8)</Text>
+        </View>
         <View style={styles.xtBadge}>
           <Text style={styles.xtText}>Tổng xT: +{xtTotal.toFixed(2)}</Text>
         </View>
@@ -73,27 +73,11 @@ export const ThreatMatrixPitch: React.FC<ThreatMatrixPitchProps> = ({
 };
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#1E1E1E',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 14,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  title: { color: '#FFFFFF', fontSize: 13.5, fontWeight: 'bold', flex: 1 },
-  xtBadge: {
-    backgroundColor: '#FF174422',
-    borderWidth: 1,
-    borderColor: '#FF5252',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
+  card: { backgroundColor: '#1E1E1E', borderRadius: 12, padding: 14, marginBottom: 14 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  title: { color: '#FFFFFF', fontSize: 13.5, fontWeight: 'bold' },
+  xtBadge: { backgroundColor: '#FF174422', borderWidth: 1, borderColor: '#FF5252', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
   xtText: { color: '#FF5252', fontSize: 11, fontWeight: 'bold' },
   subText: { color: '#AAAAAA', fontSize: 11, marginBottom: 10 },
   pitchWrapper: { alignItems: 'center' },

@@ -16,14 +16,14 @@ export interface MatchTeamIdentities {
 export interface MomentumPoint {
   minute: number; // 5, 10, 15, ..., 90
   value: number; // Dương (+): Đội nhà ép sân, Âm (-): Đội khách ép sân (-100 đến +100)
-  goals?: TeamSide[]; // Danh sách tất cả bàn thắng trong khoảng 5 phút này (kể cả 90+)
+  goals?: TeamSide[];
   hasCard?: TeamSide;
 }
 
 export interface ShotPoint {
   id: string;
   team: TeamSide;
-  x: number; // 0 -> 100 (tọa độ hướng về khung thành đối phương ở x = 100)
+  x: number; // 0 -> 100
   y: number; // 0 -> 68
   xg: number; // 0.01 -> 0.95
   outcome: 'GOAL' | 'SAVED' | 'OFF_TARGET';
@@ -37,15 +37,15 @@ export interface PassNode {
   number: number;
   name: string;
   pos: string;
-  x: number; // 0 -> 100
-  y: number; // 0 -> 68
+  x: number;
+  y: number;
   touches: number;
 }
 
 export interface PassLink {
   fromId: string;
   toId: string;
-  weight: number; // 1 -> 10 (độ dày đường chuyền)
+  weight: number;
 }
 
 export interface TeamPassNetwork {
@@ -58,13 +58,13 @@ export interface TeamPassNetwork {
 export interface HeatmapZone {
   x: number;
   y: number;
-  intensity: number; // 0.1 -> 1.0
+  intensity: number;
 }
 
 export interface SonarBin {
-  angleDeg: number; // 0, 30, 60, ..., 330
-  frequency: number; // 0.1 -> 1.0 (bán kính cánh hoa)
-  avgDistance: number; // mét
+  angleDeg: number;
+  frequency: number;
+  avgDistance: number;
 }
 
 export interface DefensiveAction {
@@ -84,6 +84,7 @@ export interface BoxEntryArrow {
 
 export interface TeamTacticalProfile {
   teamName: string;
+  actualGoals: number;
   xgTotal: number;
   xtTotal: number;
   ppda: number;
@@ -95,11 +96,12 @@ export interface TeamTacticalProfile {
   sonarBins: SonarBin[];
   defensiveActions: DefensiveAction[];
   boxEntries: BoxEntryArrow[];
-  xtGrid: number[][]; // Lưới 12 cột x 8 hàng
+  xtGrid: number[][];
 }
 
 export interface MatchTacticalReport {
   momentum: MomentumPoint[];
   home: TeamTacticalProfile;
   away: TeamTacticalProfile;
+  storyInsights: string[];
 }

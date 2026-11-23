@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { HeatmapZone } from '../../types/tactical';
+import { AppIcon } from '../common/AppIcon';
 import { PitchBase } from './PitchBase';
 
 interface HeatmapPitchProps {
@@ -10,14 +11,13 @@ interface HeatmapPitchProps {
   fieldTilt: { defThird: number; midThird: number; attThird: number };
 }
 
-export const HeatmapPitch: React.FC<HeatmapPitchProps> = ({
-  teamName,
-  zones,
-  fieldTilt,
-}) => {
+export const HeatmapPitch: React.FC<HeatmapPitchProps> = ({ teamName, zones, fieldTilt }) => {
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>🔥 Bản đồ Nhiệt & Khu vực Kiểm soát</Text>
+      <View style={styles.titleRow}>
+        <AppIcon name="flame" size={15} color="#FF9100" />
+        <Text style={styles.title}>Bản đồ Nhiệt & Khu vực Kiểm soát</Text>
+      </View>
       <Text style={styles.subText}>{teamName} • Mật độ hoạt động trên sân</Text>
 
       <View style={styles.pitchWrapper}>
@@ -29,20 +29,12 @@ export const HeatmapPitch: React.FC<HeatmapPitchProps> = ({
               <Stop offset="100%" stopColor="#00E676" stopOpacity="0" />
             </RadialGradient>
           </Defs>
-
           {zones.map((z, idx) => (
-            <Circle
-              key={idx}
-              cx={z.x}
-              cy={z.y}
-              r={7 + z.intensity * 6}
-              fill="url(#heatHot)"
-            />
+            <Circle key={idx} cx={z.x} cy={z.y} r={7 + z.intensity * 6} fill="url(#heatHot)" />
           ))}
         </PitchBase>
       </View>
 
-      {/* Thanh phân bổ kiểm soát 3 khu vực sân */}
       <View style={styles.tiltContainer}>
         <View style={styles.tiltBox}>
           <Text style={styles.tiltPercent}>{fieldTilt.defThird}%</Text>
@@ -62,24 +54,12 @@ export const HeatmapPitch: React.FC<HeatmapPitchProps> = ({
 };
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#1E1E1E',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 14,
-  },
-  title: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold', marginBottom: 4 },
+  card: { backgroundColor: '#1E1E1E', borderRadius: 12, padding: 14, marginBottom: 14 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  title: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold' },
   subText: { color: '#AAAAAA', fontSize: 11, marginBottom: 10 },
   pitchWrapper: { alignItems: 'center' },
-  tiltContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 12,
-    backgroundColor: '#161616',
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
-  },
+  tiltContainer: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, backgroundColor: '#161616', borderRadius: 8, paddingVertical: 8, paddingHorizontal: 6 },
   tiltBox: { flex: 1, alignItems: 'center' },
   tiltPercent: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold' },
   tiltLabel: { color: '#888888', fontSize: 10, marginTop: 2 },
