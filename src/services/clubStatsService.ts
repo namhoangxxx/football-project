@@ -1,47 +1,13 @@
 import { Match } from '../types/football';
 import { TeamLineup } from '../types/matchDetail';
+import { normalizePositionCode, PlayerPositionCode } from '../utils/playerPosition';
 
 const SUPABASE_URL = 'https://pgwrrhvijrjcszihswnm.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_01cdBMzHDEs5fVjPY10DRg_iONp1RQE';
 
-export type PlayerPositionCode =
-  | 'GK' | 'CB' | 'LB' | 'RB'
-  | 'CDM' | 'CM' | 'RM' | 'LM' | 'AM'
-  | 'CF' | 'RF' | 'LF';
-
-const VALID_POSITIONS = new Set<PlayerPositionCode>([
-  'GK', 'CB', 'LB', 'RB', 'CDM', 'CM', 'RM', 'LM', 'AM', 'CF', 'RF', 'LF',
-]);
-
-export const normalizePositionCode = (raw?: string): PlayerPositionCode => {
-  const code = String(raw || '').trim().toUpperCase();
-  if (VALID_POSITIONS.has(code as PlayerPositionCode)) {
-    return code as PlayerPositionCode;
-  }
-  const legacyMap: Record<string, PlayerPositionCode> = {
-    G: 'GK',
-    D: 'CB',
-    LCB: 'CB',
-    RCB: 'CB',
-    LWB: 'LB',
-    RWB: 'RB',
-    M: 'CM',
-    LCM: 'CM',
-    RCM: 'CM',
-    DM: 'CDM',
-    LDM: 'CDM',
-    RDM: 'CDM',
-    CAM: 'AM',
-    LAM: 'AM',
-    RAM: 'AM',
-    F: 'CF',
-    ST: 'CF',
-    LS: 'CF',
-    RS: 'CF',
-    LW: 'LF',
-    RW: 'RF',
-  };
-  return legacyMap[code] || 'CM';
+const sbHeaders = {
+  apikey: SUPABASE_ANON_KEY,
+  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
 };
 
 export interface ClubSeasonSummary {
@@ -62,6 +28,9 @@ export interface ClubPlayerItem {
   number: number;
   pos: PlayerPositionCode;
   appearances: number;
+  nationality?: string;
+  age?: number;
+  photoUrl?: string;
 }
 
 export const computeClubSeasonSummary = (
@@ -113,10 +82,57 @@ export const fetchClubSquadFromLineups = async (
   matches: Match[],
   teamName: string
 ): Promise<ClubPlayerItem[]> => {
+  const cleanKeyword = teamName
+    .replace(/\b(FC|CF|BSC|SV|AFC|SSC|RB|VfB|VfL|1\.|AC)\b/gi, '')
+    .trim()
+    .toLowerCase()
+    .split(' ')[0];
+
+  // 1. Ưu tiên đọc từ bảng players mới trên Supabase
+  try {
+    const pRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/players?team_name=ilike.*${encodeURIComponent(
+        cleanKeyword
+      )}*&select=*`,
+      { headers: sbHeaders }
+    );
+    if (pRes.ok) {
+      const pRows = await pRes.json();
+      if (Array.isArray(pRows) && pRows.length > 0) {
+        const ids = pRows.map((p: any) => p.player_id).join(',');
+        const sRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/player_match_stats?player_id=in.(${ids})&select=player_id`,
+          { headers: sbHeaders }
+        );
+        const appCount = new Map<number, number>();
+        if (sRes.ok) {
+          const sRows = await sRes.json();
+          sRows.forEach((r: { player_id: number }) => {
+            appCount.set(r.player_id, (appCount.get(r.player_id) || 0) + 1);
+          });
+        }
+
+        return pRows.map((p: any) => ({
+          id: Number(p.player_id),
+          name: p.name,
+          number: p.jersey_number || 0,
+          pos: normalizePositionCode(p.position_code),
+          appearances: appCount.get(Number(p.player_id)) || 0,
+          nationality: p.nationality || undefined,
+          age: p.age || undefined,
+          photoUrl: p.photo_url || undefined,
+        }));
+      }
+    }
+  } catch {
+    // Fallback sang match_lineups bên dưới
+  }
+
+  // 2. Fallback từ match_lineups nếu đội chưa có trong bảng players
   try {
     const eventIds = matches
       .filter((m) => m.status === 'FINISHED')
-      .slice(0, 8)
+      .slice(0, 10)
       .map((m) => String(m.event_id).trim())
       .filter(Boolean);
 
@@ -124,45 +140,37 @@ export const fetchClubSquadFromLineups = async (
 
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/match_lineups?event_id=in.(${eventIds.join(',')})&select=lineups`,
-      {
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
-      }
+      { headers: sbHeaders }
     );
     if (!res.ok) return [];
 
     const rows = await res.json();
     const playerMap = new Map<string, ClubPlayerItem>();
-    const keyword = teamName.toLowerCase().split(' ')[0];
 
     rows.forEach((row: { lineups?: TeamLineup[] }) => {
       const teamLineup = row.lineups?.find((l) =>
-        String(l.team?.name || '').toLowerCase().includes(keyword)
+        String(l.team?.name || '').toLowerCase().includes(cleanKeyword)
       );
       if (!teamLineup) return;
 
-      const allPlayers = [
-        ...(teamLineup.startXI || []),
-        ...(teamLineup.substitutes || []),
-      ];
-      allPlayers.forEach(({ player }) => {
-        if (!player?.name) return;
-        const key = player.name.toLowerCase();
-        const existing = playerMap.get(key);
-        if (existing) {
-          existing.appearances += 1;
-        } else {
-          playerMap.set(key, {
-            id: player.id || playerMap.size + 1,
-            name: player.name,
-            number: player.number || 0,
-            pos: normalizePositionCode(player.pos),
-            appearances: 1,
-          });
+      [...(teamLineup.startXI || []), ...(teamLineup.substitutes || [])].forEach(
+        ({ player }) => {
+          if (!player?.name) return;
+          const key = player.name.toLowerCase();
+          const existing = playerMap.get(key);
+          if (existing) {
+            existing.appearances += 1;
+          } else {
+            playerMap.set(key, {
+              id: player.id || playerMap.size + 1,
+              name: player.name,
+              number: player.number || 0,
+              pos: normalizePositionCode(player.pos),
+              appearances: 1,
+            });
+          }
         }
-      });
+      );
     });
 
     return Array.from(playerMap.values());

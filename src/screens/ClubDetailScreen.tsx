@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ClubHeaderBanner } from '../components/club/ClubHeaderBanner';
+import { ClubSquadTab, SelectedPlayerPayload } from '../components/club/ClubSquadTab';
 import { ClubStatsTab } from '../components/club/ClubStatsTab';
 import { AppIcon, IconName } from '../components/common/AppIcon';
 import { MatchCard } from '../components/common/MatchCard';
@@ -21,13 +22,15 @@ interface ClubDetailProps {
   logoUrl?: string;
   onBack: () => void;
   onSelectMatch: (match: Match) => void;
+  onSelectPlayer: (player: SelectedPlayerPayload) => void;
 }
 
-type ClubTab = 'MATCHES' | 'STATS';
+type ClubTab = 'MATCHES' | 'STATS' | 'SQUAD';
 
 const CLUB_TABS: Array<{ key: ClubTab; label: string; icon: IconName }> = [
   { key: 'MATCHES', label: 'Trận đấu', icon: 'calendar' },
   { key: 'STATS', label: 'Thống kê', icon: 'chart' },
+  { key: 'SQUAD', label: 'Đội hình', icon: 'jersey' },
 ];
 
 export const ClubDetailScreen: React.FC<ClubDetailProps> = ({
@@ -36,6 +39,7 @@ export const ClubDetailScreen: React.FC<ClubDetailProps> = ({
   logoUrl,
   onBack,
   onSelectMatch,
+  onSelectPlayer,
 }) => {
   const [activeTab, setActiveTab] = useState<ClubTab>('MATCHES');
   const [matches, setMatches] = useState<Match[]>([]);
@@ -107,8 +111,14 @@ export const ClubDetailScreen: React.FC<ClubDetailProps> = ({
               <Text style={styles.emptyText}>Chưa có dữ liệu trận đấu cho CLB này.</Text>
             }
           />
-        ) : (
+        ) : activeTab === 'STATS' ? (
           <ClubStatsTab matches={matches} teamId={teamId} teamName={teamName} />
+        ) : (
+          <ClubSquadTab
+            matches={matches}
+            teamName={teamName}
+            onSelectPlayer={onSelectPlayer}
+          />
         )}
       </View>
     </SafeAreaView>

@@ -8,9 +8,11 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SelectedPlayerPayload } from '../components/club/ClubSquadTab';
 import { AppIcon, IconName } from '../components/common/AppIcon';
 import { MatchEventsTab } from '../components/match/MatchEventsTab';
 import { MatchLineupsTab } from '../components/match/MatchLineupsTab';
+import { MatchPredictionCard } from '../components/match/MatchPredictionCard';
 import { MatchScoreboard } from '../components/match/MatchScoreboard';
 import { MatchStatsTab } from '../components/match/MatchStatsTab';
 import { MatchTacticsTab } from '../components/match/MatchTacticsTab';
@@ -26,8 +28,10 @@ import { MatchTeamIdentities } from '../types/tactical';
 
 interface MatchDetailProps {
   match: Match;
+  allMatches?: Match[];
   onBack: () => void;
   onSelectClub: (teamId: number, teamName: string, logoUrl?: string) => void;
+  onSelectPlayer?: (player: SelectedPlayerPayload) => void;
 }
 
 type DetailTab = 'STATS' | 'TACTICS' | 'EVENTS' | 'LINEUPS';
@@ -41,8 +45,10 @@ const TABS: Array<{ key: DetailTab; label: string; icon: IconName }> = [
 
 export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
   match,
+  allMatches = [],
   onBack,
   onSelectClub,
+  onSelectPlayer,
 }) => {
   const [activeTab, setActiveTab] = useState<DetailTab>('STATS');
   const [stats, setStats] = useState<MatchStats | null>(null);
@@ -76,7 +82,12 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
       getMatchStats(match.event_id),
       getMatchEventsFromSupabase(match.event_id),
       getMatchLineupsFromSupabase(match.event_id),
-      getMatchTeamIdentities(match.home_team_id, match.away_team_id, match.home_team, match.away_team),
+      getMatchTeamIdentities(
+        match.home_team_id,
+        match.away_team_id,
+        match.home_team,
+        match.away_team
+      ),
     ])
       .then(([statsData, eventsData, lineupsData, identitiesData]) => {
         if (!isMounted) return;
@@ -150,28 +161,14 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
                   />
                 )}
                 {activeTab === 'EVENTS' && <MatchEventsTab events={events} />}
-                {activeTab === 'LINEUPS' && <MatchLineupsTab lineups={lineups} />}
+                {activeTab === 'LINEUPS' && (
+                  <MatchLineupsTab lineups={lineups} onSelectPlayer={onSelectPlayer} />
+                )}
               </>
             )}
           </>
         ) : (
-          <View style={styles.card}>
-            <View style={styles.titleRow}>
-              <AppIcon name="brain" size={16} color="#00E676" />
-              <Text style={styles.sectionTitle}>Dự đoán & Phân tích</Text>
-            </View>
-            <View style={styles.predictionBar}>
-              <View style={[styles.predSegment, { flex: 50, backgroundColor: '#00E676' }]}>
-                <Text style={[styles.predText, { color: '#121212' }]}>Chủ 50%</Text>
-              </View>
-              <View style={[styles.predSegment, { flex: 25, backgroundColor: '#475569' }]}>
-                <Text style={styles.predText}>Hòa 25%</Text>
-              </View>
-              <View style={[styles.predSegment, { flex: 25, backgroundColor: '#FF5252' }]}>
-                <Text style={styles.predText}>Khách 25%</Text>
-              </View>
-            </View>
-          </View>
+          <MatchPredictionCard match={match} allMatches={allMatches} />
         )}
       </ScrollView>
     </SafeAreaView>
@@ -203,16 +200,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#262626',
   },
-  tab: { flex: 1, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 4, paddingVertical: 8, borderRadius: 7 },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    borderRadius: 7,
+  },
   activeTab: { backgroundColor: '#282828' },
   tabText: { color: '#777', fontSize: 11, fontWeight: '600' },
   activeTabText: { color: '#00E676', fontWeight: '700' },
   loadingBox: { backgroundColor: '#1A1A1A', borderRadius: 12, padding: 20, alignItems: 'center' },
   loadingText: { color: '#999', marginTop: 8, fontSize: 13 },
-  card: { backgroundColor: '#1A1A1A', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#262626' },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 12 },
-  sectionTitle: { color: '#FFF', fontSize: 14.5, fontWeight: '700' },
-  predictionBar: { height: 24, flexDirection: 'row', borderRadius: 6, overflow: 'hidden' },
-  predSegment: { justifyContent: 'center', alignItems: 'center' },
-  predText: { color: '#FFF', fontSize: 10.5, fontWeight: '700' },
 });

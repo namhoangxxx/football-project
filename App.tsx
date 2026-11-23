@@ -8,12 +8,14 @@ import {
   Text,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SelectedPlayerPayload } from './src/components/club/ClubSquadTab';
 import { MatchCard } from './src/components/common/MatchCard';
 import { HomeHeaderTabs, HomeTabType } from './src/components/home/HomeHeaderTabs';
 import { MatchFilterBar } from './src/components/home/MatchFilterBar';
 import { LEAGUE_FILTERS } from './src/constants/leagues';
 import { ClubDetailScreen } from './src/screens/ClubDetailScreen';
 import { MatchDetailScreen } from './src/screens/MatchDetailScreen';
+import { PlayerDetailScreen } from './src/screens/PlayerDetailScreen';
 import { StandingsScreen } from './src/screens/StandingsScreen';
 import { fetchMatchesFromSupabase } from './src/services/footballApi';
 import { Match } from './src/types/football';
@@ -31,10 +33,14 @@ export default function App() {
     teamName: string;
     logoUrl?: string;
   } | null>(null);
+  const [selectedPlayer, setSelectedPlayer] = useState<SelectedPlayerPayload | null>(null);
 
-  // Xử lý nút Back vật lý trên Android
   useEffect(() => {
     const onHardwareBackPress = () => {
+      if (selectedPlayer) {
+        setSelectedPlayer(null);
+        return true;
+      }
       if (selectedMatch) {
         setSelectedMatch(null);
         return true;
@@ -48,7 +54,7 @@ export default function App() {
 
     const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBackPress);
     return () => sub.remove();
-  }, [selectedMatch, selectedClub]);
+  }, [selectedPlayer, selectedMatch, selectedClub]);
 
   const loadMatches = async () => {
     try {
@@ -103,15 +109,30 @@ export default function App() {
     });
   }, [matches, activeTab, selectedLeague, searchQuery]);
 
+  if (selectedPlayer) {
+    return (
+      <PlayerDetailScreen
+        playerName={selectedPlayer.name}
+        teamName={selectedPlayer.teamName}
+        number={selectedPlayer.number}
+        pos={selectedPlayer.pos}
+        allMatches={matches}
+        onBack={() => setSelectedPlayer(null)}
+      />
+    );
+  }
+
   if (selectedMatch) {
     return (
       <MatchDetailScreen
         match={selectedMatch}
+        allMatches={matches}
         onBack={() => setSelectedMatch(null)}
         onSelectClub={(teamId, teamName, logoUrl) => {
           setSelectedMatch(null);
           setSelectedClub({ teamId, teamName, logoUrl });
         }}
+        onSelectPlayer={(player) => setSelectedPlayer(player)}
       />
     );
   }
@@ -124,6 +145,7 @@ export default function App() {
         logoUrl={selectedClub.logoUrl}
         onBack={() => setSelectedClub(null)}
         onSelectMatch={(match) => setSelectedMatch(match)}
+        onSelectPlayer={(player) => setSelectedPlayer(player)}
       />
     );
   }
