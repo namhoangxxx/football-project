@@ -1,7 +1,3 @@
-import {
-  normalizePositionCode,
-  PlayerPositionCode,
-} from '../../services/clubStatsService';
 import { Match } from '../../types/football';
 import { MatchEventItem, MatchStats, TeamLineup } from '../../types/matchDetail';
 import {
@@ -21,20 +17,6 @@ import {
   getFormationCoordinates,
   resolveEventSide,
 } from './tacticalHelpers';
-
-const MIDFIELD_ROLES = new Set<PlayerPositionCode>(['CDM', 'CM', 'AM', 'LM', 'RM']);
-
-const fallbackPosByIndex = (idx: number): PlayerPositionCode => {
-  if (idx === 0) return 'GK';
-  if (idx === 1) return 'LB';
-  if (idx === 2 || idx === 3) return 'CB';
-  if (idx === 4) return 'RB';
-  if (idx === 5) return 'CDM';
-  if (idx === 6 || idx === 7) return 'CM';
-  if (idx === 8) return 'LF';
-  if (idx === 9) return 'CF';
-  return 'RF';
-};
 
 export const buildTeamProfile = (
   side: TeamSide,
@@ -147,15 +129,15 @@ export const buildTeamProfile = (
     });
   }
 
-  // 2. PASS NETWORK (chuẩn hóa 12 vị trí)
+  // 2. PASS NETWORK
   const formation = lineup?.formation || '4-3-3';
   const baseCoords = getFormationCoordinates(formation);
   const shiftForward = (possession - 50) * 0.18;
 
   const nodes: PassNode[] = baseCoords.map((pt, idx) => {
     const p = startXI[idx]?.player;
-    const pos = p?.pos ? normalizePositionCode(p.pos) : fallbackPosByIndex(idx);
-    const isMidfielder = MIDFIELD_ROLES.has(pos);
+    const pos = p?.pos || (idx === 0 ? 'GK' : idx <= 4 ? 'DEF' : idx <= 7 ? 'MID' : 'FWD');
+    const isMidfielder = pos.toUpperCase().includes('M');
 
     return {
       id: `${side}-node-${idx}`,

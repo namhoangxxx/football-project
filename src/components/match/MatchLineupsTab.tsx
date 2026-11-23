@@ -1,97 +1,48 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import {
-  normalizePositionCode,
-  PlayerPositionCode,
-} from '../../services/clubStatsService';
-import { LineupPlayer, TeamLineup } from '../../types/matchDetail';
+import { TeamLineup } from '../../types/matchDetail';
 import { AppIcon } from '../common/AppIcon';
 
 interface MatchLineupsTabProps {
   lineups: TeamLineup[];
 }
 
-const POS_COLOR: Record<PlayerPositionCode, string> = {
-  GK: '#FFD600',
-  CB: '#38BDF8',
-  LB: '#38BDF8',
-  RB: '#38BDF8',
-  CDM: '#00E676',
-  CM: '#00E676',
-  RM: '#00E676',
-  LM: '#00E676',
-  AM: '#00E676',
-  CF: '#FF5252',
-  RF: '#FF5252',
-  LF: '#FF5252',
-};
-
 export const MatchLineupsTab: React.FC<MatchLineupsTabProps> = ({ lineups }) => {
-  const renderPlayerRow = (
-    item: LineupPlayer,
-    key: string,
-    isSub = false
-  ) => {
-    const posCode = normalizePositionCode(item.player.pos);
-    const badgeColor = POS_COLOR[posCode];
-    return (
-      <View key={key} style={styles.playerRow}>
-        <Text style={[styles.number, isSub && styles.subNumber]}>
-          {item.player.number || '-'}
-        </Text>
-        <Text style={[styles.name, isSub && styles.subName]} numberOfLines={1}>
-          {item.player.name}
-        </Text>
-        <View style={[styles.posTag, { borderColor: badgeColor }]}>
-          <Text style={[styles.posText, { color: badgeColor }]}>{posCode}</Text>
-        </View>
-      </View>
-    );
-  };
-
   return (
     <View style={styles.card}>
       <View style={styles.titleRow}>
         <AppIcon name="jersey" size={16} color="#00E676" />
-        <Text style={styles.title}>Đội hình ra sân & Dự bị</Text>
+        <Text style={styles.title}>Đội hình ra sân</Text>
       </View>
 
       {lineups.length > 0 ? (
-        lineups.map((teamLineup, idx) => {
-          const subs = teamLineup.substitutes || [];
-          return (
-            <View
-              key={idx}
-              style={[styles.block, idx === lineups.length - 1 && styles.lastBlock]}
-            >
-              <View style={styles.header}>
-                <Text style={styles.teamName}>{teamLineup.team?.name}</Text>
-                <Text style={styles.formation}>
-                  Sơ đồ: {teamLineup.formation || 'N/A'}
-                </Text>
-              </View>
-              {teamLineup.coach?.name && (
-                <Text style={styles.coach}>HLV: {teamLineup.coach.name}</Text>
-              )}
-
-              <Text style={styles.subHeader}>Đội hình chính (11)</Text>
-              {teamLineup.startXI?.map((item, pIdx) =>
-                renderPlayerRow(item, `xi-${idx}-${pIdx}`, false)
-              )}
-
-              {subs.length > 0 && (
-                <>
-                  <Text style={[styles.subHeader, styles.benchHeader]}>
-                    Cầu thủ dự bị ({subs.length})
-                  </Text>
-                  {subs.map((item, sIdx) =>
-                    renderPlayerRow(item, `sub-${idx}-${sIdx}`, true)
-                  )}
-                </>
-              )}
+        lineups.map((teamLineup, idx) => (
+          <View
+            key={idx}
+            style={[styles.block, idx === lineups.length - 1 && styles.lastBlock]}
+          >
+            <View style={styles.header}>
+              <Text style={styles.teamName}>{teamLineup.team?.name}</Text>
+              <Text style={styles.formation}>
+                Sơ đồ: {teamLineup.formation || 'N/A'}
+              </Text>
             </View>
-          );
-        })
+            {teamLineup.coach?.name && (
+              <Text style={styles.coach}>HLV: {teamLineup.coach.name}</Text>
+            )}
+
+            <Text style={styles.subHeader}>Đội hình chính (11)</Text>
+            {teamLineup.startXI?.map((item, pIdx) => (
+              <View key={pIdx} style={styles.playerRow}>
+                <Text style={styles.number}>{item.player.number || '-'}</Text>
+                <Text style={styles.name} numberOfLines={1}>
+                  {item.player.name}
+                </Text>
+                <Text style={styles.pos}>{item.player.pos}</Text>
+              </View>
+            ))}
+          </View>
+        ))
       ) : (
         <Text style={styles.emptyText}>Chưa có dữ liệu đội hình cho trận đấu này.</Text>
       )}
@@ -136,26 +87,14 @@ const styles = StyleSheet.create({
   },
   coach: { color: '#999', fontSize: 12, marginBottom: 8 },
   subHeader: {
-    color: '#00E676',
+    color: '#777',
     fontSize: 10.5,
     fontWeight: '700',
     textTransform: 'uppercase',
-    marginTop: 6,
-    marginBottom: 4,
+    marginVertical: 6,
   },
-  benchHeader: { color: '#94A3B8', marginTop: 12 },
   playerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 5 },
   number: { color: '#00E676', fontWeight: '700', width: 28, fontSize: 12 },
-  subNumber: { color: '#94A3B8' },
   name: { color: '#FFF', flex: 1, fontSize: 13, paddingRight: 8 },
-  subName: { color: '#CBD5E1' },
-  posTag: {
-    borderWidth: 1,
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    minWidth: 36,
-    alignItems: 'center',
-  },
-  posText: { fontSize: 10, fontWeight: '800' },
+  pos: { color: '#94A3B8', fontSize: 11, fontWeight: '700', width: 32, textAlign: 'right' },
 });
