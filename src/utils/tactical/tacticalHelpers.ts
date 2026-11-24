@@ -1,4 +1,5 @@
 import { MatchTeamIdentities, TeamIdentity, TeamSide } from '../../types/tactical';
+import { isSameClubName, normalizeSearchText } from '../textNormalize';
 
 export const createSeededRandom = (seedStr: string) => {
   let hash = 2166136261;
@@ -18,9 +19,10 @@ export const clamp = (val: number, min: number, max: number) =>
   Math.max(min, Math.min(max, val));
 
 export const normalizeStr = (s?: string) =>
-  String(s || '')
-    .toLowerCase()
-    .replace(/\b(fc|cf|afc|sc|ac|as|ss|ssc|rb|vfb|vfl|1\.)\b/g, '')
+  normalizeSearchText(s || '')
+    .replace(/\bmunchen\b/g, 'munich')
+    .replace(/\bkoeln\b/g, 'koln')
+    .replace(/\b(fc|cf|afc|sc|ac|as|ss|ssc|rb|vfb|vfl|1)\b/g, '')
     .replace(/[^a-z0-9]/g, '')
     .trim();
 
@@ -39,15 +41,30 @@ export const matchesTeamIdentity = (
     }
   }
 
-  const targetName = normalizeStr(eventTeam.name);
+  const rawName = String(eventTeam.name || '').trim();
+  if (!rawName) return false;
+
+  const rawCandidates = [identity.espnName, identity.teamName].filter(
+    (c): c is string => Boolean(c && c.trim().length > 0)
+  );
+
+  if (rawCandidates.some((c) => isSameClubName(rawName, c))) {
+    return true;
+  }
+
+  const targetName = normalizeStr(rawName);
   if (!targetName) return false;
 
-  const candidates = [identity.espnName, identity.teamName]
+  const normalizedCandidates = rawCandidates
     .map(normalizeStr)
     .filter((c) => c.length > 0);
 
-  return candidates.some(
-    (c) => c === targetName || c.includes(targetName) || targetName.includes(c)
+  return normalizedCandidates.some(
+    (c) =>
+      c === targetName ||
+      (c.length >= 5 &&
+        targetName.length >= 5 &&
+        (c.includes(targetName) || targetName.includes(c)))
   );
 };
 

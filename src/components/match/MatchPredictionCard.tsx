@@ -1,159 +1,338 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { fetchRecentMatchesXg, TeamXgMap } from '../../services/predictionDataLoader';
+import { fetchExpandedPredictionData, TeamXgMap } from '../../services/predictionDataLoader';
 import { predictMatchOutcome } from '../../services/predictionEngine';
 import { Match } from '../../types/football';
-import { AppIcon } from '../common/AppIcon';
 
-interface MatchPredictionCardProps {
-  match: Match;
-  allMatches: Match[];
+export interface MatchPredictionCardProps {
+  match?: Match;
+  homeTeam?: string;
+  awayTeam?: string;
+  leagueCode?: string;
+  allMatches?: Match[];
 }
 
 export const MatchPredictionCard: React.FC<MatchPredictionCardProps> = ({
   match,
-  allMatches,
+  homeTeam,
+  awayTeam,
+  allMatches = [],
 }) => {
+  const resolvedHome = match?.home_team || homeTeam || 'Đội nhà';
+  const resolvedAway = match?.away_team || awayTeam || 'Đội khách';
+
   const [xgMap, setXgMap] = useState<TeamXgMap>({});
+  const [expandedMatches, setExpandedMatches] = useState<Match[]>(allMatches);
 
   useEffect(() => {
-    let isMounted = true;
-    fetchRecentMatchesXg(match.home_team, match.away_team, allMatches).then((data) => {
-      if (isMounted) setXgMap(data);
-    });
-    return () => {
-      isMounted = false;
-    };
-  }, [match.home_team, match.away_team, allMatches]);
+    setExpandedMatches(allMatches);
+  }, [allMatches]);
 
-  const pred = useMemo(
-    () => predictMatchOutcome(match, allMatches, xgMap),
-    [match, allMatches, xgMap]
+  useEffect(() => {
+    let active = true;
+    setXgMap({});
+
+    fetchExpandedPredictionData(
+      resolvedHome,
+      resolvedAway,
+      allMatches,
+      match?.home_team_id || 0,
+      match?.away_team_id || 0
+    )
+      .then((data) => {
+        if (!active) return;
+        if (data.matches && data.matches.length > 0) {
+          setExpandedMatches(data.matches);
+        }
+        setXgMap(data.xgMap && Object.keys(data.xgMap).length > 0 ? data.xgMap : {});
+      })
+      .catch(() => {
+        if (active) setXgMap({});
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [resolvedHome, resolvedAway, allMatches, match?.home_team_id, match?.away_team_id]);
+
+  const prediction = useMemo(
+    () => predictMatchOutcome(resolvedHome, resolvedAway, expandedMatches, xgMap),
+    [resolvedHome, resolvedAway, expandedMatches, xgMap]
   );
 
-  const renderFormBadges = (form: string[]) => {
-    if (form.length === 0) return <Text style={styles.muted}>Đầu mùa giải</Text>;
-    return (
-      <View style={styles.formList}>
-        {form.map((res, idx) => {
-          const bg = res === 'W' ? '#00E676' : res === 'D' ? '#64748B' : '#FF5252';
-          const fg = res === 'W' ? '#121212' : '#FFFFFF';
-          return (
-            <View key={idx} style={[styles.badge, { backgroundColor: bg }]}>
-              <Text style={[styles.badgeText, { color: fg }]}>{res}</Text>
-            </View>
-          );
-        })}
-      </View>
-    );
-  };
+  const confidenceColor =
+    prediction.confidence === 'Cao'
+      ? '#10B981'
+      : prediction.confidence === 'Trung bình'
+      ? '#F59E0B'
+      : '#94A3B8';
+
+  const subtitleText = prediction.usedRealXg
+    ? `xG thực tế + Elo động (${prediction.sampleMatchesUsed} trận)`
+    : prediction.usedStatsXg
+    ? `Thống kê cú sút/xG + Elo động (${prediction.sampleMatchesUsed} trận)`
+    : `Mô hình Poisson + Elo động (${prediction.sampleMatchesUsed} trận)`;
 
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <View style={styles.titleRow}>
-          <AppIcon name="brain" size={16} color="#00E676" />
-          <Text style={styles.sectionTitle}>Dự đoán Xác suất (Dixon-Coles & Elo)</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>Dự đoán Xác suất & AI</Text>
+          <Text style={styles.subtitle}>{subtitleText}</Text>
         </View>
-        <View style={styles.confBadge}>
-          <Text style={styles.confText}>Tin cậy {pred.confidence}%</Text>
-        </View>
-      </View>
-
-      {/* Điểm sức mạnh Elo 2 đội */}
-      <View style={styles.eloRow}>
-        <Text style={styles.eloText}>Elo Chủ: {pred.homeElo}</Text>
-        <Text style={styles.likelyScore}>Tỷ số khả dĩ: {pred.mostLikelyScore}</Text>
-        <Text style={styles.eloText}>Elo Khách: {pred.awayElo}</Text>
-      </View>
-
-      {/* Thanh xác suất Thắng - Hòa - Thua */}
-      <View style={styles.predictionBar}>
-        <View style={[styles.predSegment, { flex: pred.homeWinProb, backgroundColor: '#00E676' }]}>
-          <Text style={[styles.predText, { color: '#121212' }]}>Chủ {pred.homeWinProb}%</Text>
-        </View>
-        <View style={[styles.predSegment, { flex: pred.drawProb, backgroundColor: '#475569' }]}>
-          <Text style={styles.predText}>Hòa {pred.drawProb}%</Text>
-        </View>
-        <View style={[styles.predSegment, { flex: pred.awayWinProb, backgroundColor: '#FF5252' }]}>
-          <Text style={styles.predText}>Khách {pred.awayWinProb}%</Text>
+        <View style={[styles.badge, { borderColor: confidenceColor }]}>
+          <Text style={[styles.badgeText, { color: confidenceColor }]}>
+            Tin cậy: {prediction.confidence} ({prediction.confidenceScore}%)
+          </Text>
         </View>
       </View>
 
-      {/* Chỉ số phụ */}
-      <View style={styles.subStatsGrid}>
-        <View style={styles.statBox}>
-          <Text style={styles.statVal}>{pred.expectedHomeGoals} - {pred.expectedAwayGoals}</Text>
-          <Text style={styles.statLabel}>Bàn thắng kỳ vọng (xG)</Text>
+      <View style={styles.probLabelsRow}>
+        <Text style={styles.probLabelHome} numberOfLines={1}>
+          {resolvedHome} ({prediction.homeWinProb}%)
+        </Text>
+        <Text style={styles.probLabelDraw}>Hòa ({prediction.drawProb}%)</Text>
+        <Text style={styles.probLabelAway} numberOfLines={1}>
+          ({prediction.awayWinProb}%) {resolvedAway}
+        </Text>
+      </View>
+
+      <View style={styles.barContainer}>
+        <View style={[styles.barSegment, { flex: Math.max(prediction.homeWinProb, 6), backgroundColor: '#10B981' }]} />
+        <View style={[styles.barSegment, { flex: Math.max(prediction.drawProb, 6), backgroundColor: '#F59E0B' }]} />
+        <View style={[styles.barSegment, { flex: Math.max(prediction.awayWinProb, 6), backgroundColor: '#3B82F6' }]} />
+      </View>
+
+      <View style={styles.metricsGrid}>
+        <View style={styles.metricBox}>
+          <Text style={styles.metricTitle}>Chỉ số Elo</Text>
+          <Text style={styles.metricValue}>
+            {prediction.homeElo} <Text style={styles.metricDivider}>vs</Text> {prediction.awayElo}
+          </Text>
         </View>
-        <View style={styles.statBox}>
-          <Text style={[styles.statVal, { color: '#38BDF8' }]}>{pred.over25Prob}%</Text>
-          <Text style={styles.statLabel}>Trên 2.5 bàn</Text>
-        </View>
-        <View style={styles.statBox}>
-          <Text style={[styles.statVal, { color: '#FACC15' }]}>{pred.bttsProb}%</Text>
-          <Text style={styles.statLabel}>2 đội ghi bàn (BTTS)</Text>
+
+        <View style={styles.metricBox}>
+          <Text style={styles.metricTitle}>Kỳ vọng bàn thắng (xG)</Text>
+          <Text style={styles.metricValue}>
+            {prediction.homeExpectedGoals.toFixed(2)}{' '}
+            <Text style={styles.metricDivider}>-</Text>{' '}
+            {prediction.awayExpectedGoals.toFixed(2)}
+          </Text>
         </View>
       </View>
 
-      {/* Phong độ 5 trận gần nhất */}
-      <View style={styles.formSection}>
-        <View style={styles.formRow}>
-          <Text style={styles.teamLabel} numberOfLines={1}>{match.home_team}</Text>
-          {renderFormBadges(pred.homeRecentForm)}
+      <View style={styles.subStatsRow}>
+        <View style={styles.subStatItem}>
+          <Text style={styles.subStatLabel}>Tỷ số dễ xảy ra</Text>
+          <Text style={styles.subStatValue}>{prediction.mostLikelyScore}</Text>
         </View>
-        <View style={styles.formRow}>
-          <Text style={styles.teamLabel} numberOfLines={1}>{match.away_team}</Text>
-          {renderFormBadges(pred.awayRecentForm)}
+        <View style={styles.subStatDivider} />
+        <View style={styles.subStatItem}>
+          <Text style={styles.subStatLabel}>Tài 2.5 bàn</Text>
+          <Text style={styles.subStatValue}>{prediction.over25Prob}%</Text>
+        </View>
+        <View style={styles.subStatDivider} />
+        <View style={styles.subStatItem}>
+          <Text style={styles.subStatLabel}>2 đội ghi bàn</Text>
+          <Text style={styles.subStatValue}>{prediction.bttsProb}%</Text>
         </View>
       </View>
 
-      <Text style={styles.h2hFooter}>
-        {pred.h2hSummary.total > 0
-          ? `Đối đầu H2H (${pred.h2hSummary.total} trận): Chủ thắng ${pred.h2hSummary.homeWins} • Hòa ${pred.h2hSummary.draws} • Khách thắng ${pred.h2hSummary.awayWins}`
-          : 'Chưa có lịch sử đối đầu trực tiếp trong dữ liệu mùa giải'}
-      </Text>
+      {prediction.topScores.length > 0 && (
+        <View style={styles.topScoresRow}>
+          <Text style={styles.topScoresTitle}>Kịch bản tỷ số:</Text>
+          <View style={styles.topScoresChips}>
+            {prediction.topScores.map((item) => (
+              <View key={item.score} style={styles.scoreChip}>
+                <Text style={styles.scoreChipText}>
+                  {item.score} ({item.probability}%)
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {prediction.insights.length > 0 && (
+        <View style={styles.insightsBox}>
+          {prediction.insights.map((line, idx) => (
+            <Text key={idx} style={styles.insightLine}>
+              - {line}
+            </Text>
+          ))}
+        </View>
+      )}
     </View>
   );
 };
 
+export default MatchPredictionCard;
+
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: '#111827',
+    borderRadius: 14,
+    padding: 14,
+    marginVertical: 8,
     borderWidth: 1,
-    borderColor: '#262626',
+    borderColor: '#1F2937',
   },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
-  sectionTitle: { color: '#FFF', fontSize: 13.5, fontWeight: '700' },
-  confBadge: { backgroundColor: 'rgba(0, 230, 118, 0.14)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  confText: { color: '#00E676', fontSize: 10.5, fontWeight: '700' },
-  eloRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  eloText: { color: '#94A3B8', fontSize: 11, fontWeight: '600' },
-  likelyScore: { color: '#38BDF8', fontSize: 12, fontWeight: '800' },
-  predictionBar: { height: 26, flexDirection: 'row', borderRadius: 6, overflow: 'hidden' },
-  predSegment: { justifyContent: 'center', alignItems: 'center' },
-  predText: { color: '#FFF', fontSize: 10.5, fontWeight: '800' },
-  subStatsGrid: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  statBox: {
-    flex: 1,
-    backgroundColor: '#131313',
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+    gap: 8,
+  },
+  title: {
+    color: '#F9FAFB',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  subtitle: {
+    color: '#9CA3AF',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  badge: {
+    borderWidth: 1,
     borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#252525',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: '#0F172A',
   },
-  statVal: { color: '#00E676', fontSize: 14, fontWeight: '800' },
-  statLabel: { color: '#94A3B8', fontSize: 10, marginTop: 3, textAlign: 'center' },
-  formSection: { marginTop: 14, gap: 8, borderTopWidth: 1, borderTopColor: '#262626', paddingTop: 12 },
-  formRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  teamLabel: { color: '#E2E8F0', fontSize: 12.5, fontWeight: '600', flex: 1, paddingRight: 8 },
-  formList: { flexDirection: 'row', gap: 4 },
-  badge: { width: 20, height: 20, borderRadius: 4, justifyContent: 'center', alignItems: 'center' },
-  badgeText: { fontSize: 10.5, fontWeight: '800' },
-  muted: { color: '#64748B', fontSize: 11.5 },
-  h2hFooter: { color: '#94A3B8', fontSize: 11, marginTop: 12, textAlign: 'center' },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  probLabelsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+    gap: 6,
+  },
+  probLabelHome: {
+    color: '#10B981',
+    fontSize: 12,
+    fontWeight: '700',
+    flex: 1,
+  },
+  probLabelDraw: {
+    color: '#F59E0B',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  probLabelAway: {
+    color: '#60A5FA',
+    fontSize: 12,
+    fontWeight: '700',
+    flex: 1,
+    textAlign: 'right',
+  },
+  barContainer: {
+    flexDirection: 'row',
+    height: 10,
+    borderRadius: 6,
+    overflow: 'hidden',
+    gap: 2,
+    marginBottom: 12,
+  },
+  barSegment: {
+    height: '100%',
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  metricBox: {
+    flex: 1,
+    backgroundColor: '#1E293B',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+  },
+  metricTitle: {
+    color: '#94A3B8',
+    fontSize: 11,
+    marginBottom: 3,
+  },
+  metricValue: {
+    color: '#F8FAFC',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  metricDivider: {
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  subStatsRow: {
+    flexDirection: 'row',
+    backgroundColor: '#0F172A',
+    borderRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  subStatItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  subStatDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#1E293B',
+  },
+  subStatLabel: {
+    color: '#94A3B8',
+    fontSize: 11,
+    marginBottom: 2,
+  },
+  subStatValue: {
+    color: '#E2E8F0',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  topScoresRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  topScoresTitle: {
+    color: '#94A3B8',
+    fontSize: 12,
+  },
+  topScoresChips: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  scoreChip: {
+    backgroundColor: '#1E293B',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  scoreChipText: {
+    color: '#CBD5E1',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  insightsBox: {
+    borderTopWidth: 1,
+    borderTopColor: '#1F2937',
+    paddingTop: 8,
+    gap: 4,
+  },
+  insightLine: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    lineHeight: 17,
+  },
 });

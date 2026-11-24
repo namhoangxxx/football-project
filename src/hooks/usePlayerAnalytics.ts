@@ -17,6 +17,7 @@ export function usePlayerAnalytics(params: {
 
   useEffect(() => {
     let isMounted = true;
+    setSummary(null);
     setLoading(true);
 
     fetchPlayerProfileSummary(
@@ -42,27 +43,29 @@ export function usePlayerAnalytics(params: {
   }, [playerName, teamName, number, pos, allMatches]);
 
   const profile = useMemo(() => {
-    const totalApps = summary ? summary.starts + summary.subAppearances : undefined;
+    const totalApps = summary ? summary.starts + summary.subAppearances : 0;
     const estMinutes = summary
       ? summary.starts * 82 + summary.subAppearances * 24
-      : undefined;
+      : 0;
 
     return buildPlayerAnalyticsProfile(
       {
         name: playerName,
         teamName,
         number: summary?.number || number,
-        pos: summary?.pos || pos,
-        rawStats: summary
-          ? {
-              appearances: totalApps && totalApps > 0 ? totalApps : undefined,
-              minutes: estMinutes && estMinutes > 0 ? estMinutes : undefined,
-              goals: summary.goals,
-              assists: summary.assists,
-              yellow_cards: summary.yellowCards,
-              red_cards: summary.redCards,
-            }
-          : undefined,
+        pos: normalizePositionCode(summary?.pos || pos),
+        recentMatches: summary?.recentMatches,
+        rawStats:
+          summary && totalApps > 0
+            ? {
+                appearances: totalApps,
+                minutes: estMinutes > 0 ? estMinutes : undefined,
+                goals: summary.goals,
+                assists: summary.assists,
+                yellow_cards: summary.yellowCards,
+                red_cards: summary.redCards,
+              }
+            : undefined,
       },
       allMatches
     );

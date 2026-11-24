@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Svg, { Circle, Line, Rect } from 'react-native-svg';
 import { MomentumPoint } from '../../types/tactical';
 import { AppIcon } from '../common/AppIcon';
@@ -11,7 +11,8 @@ interface MomentumChartProps {
 }
 
 export const MomentumChart: React.FC<MomentumChartProps> = ({ data, homeName, awayName }) => {
-  const width = 320;
+  const { width: windowWidth } = useWindowDimensions();
+  const width = Math.max(240, Math.min(windowWidth - 60, 420));
   const height = 148;
   const midY = height / 2;
   const maxBarHeight = 46;

@@ -7,31 +7,33 @@ interface MatchCardProps {
   onPress: () => void;
 }
 
-export const MatchCard: React.FC<MatchCardProps> = ({ item, onPress }) => {
-  const isLive =
-    item.status === 'IN_PLAY' ||
-    item.status === 'PAUSED' ||
-    item.status === 'HALFTIME';
-  const isFinished = item.status === 'FINISHED';
+const LIVE_STATUSES = new Set(['IN_PLAY', 'PAUSED', 'HALFTIME']);
 
-  const formatDateTime = (timeString?: string) => {
-    if (!timeString) return null;
-    const date = new Date(timeString);
-    return {
-      timeStr: date.toLocaleTimeString('vi-VN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-        timeZone: 'Asia/Ho_Chi_Minh',
-      }),
-      dateStr: date.toLocaleDateString('vi-VN', {
-        day: '2-digit',
-        month: '2-digit',
-        timeZone: 'Asia/Ho_Chi_Minh',
-      }),
-    };
+function formatDateTime(timeString?: string) {
+  if (!timeString) return null;
+  const date = new Date(timeString);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return {
+    timeStr: date.toLocaleTimeString('vi-VN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Ho_Chi_Minh',
+    }),
+    dateStr: date.toLocaleDateString('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      timeZone: 'Asia/Ho_Chi_Minh',
+    }),
   };
+}
 
+const MatchCardComponent: React.FC<MatchCardProps> = ({ item, onPress }) => {
+  const isLive = LIVE_STATUSES.has(item.status);
+  const isFinished = item.status === 'FINISHED';
+  const liveLabel =
+    item.status === 'PAUSED' || item.status === 'HALFTIME' ? 'HT' : 'LIVE';
   const formatted = formatDateTime(item.match_time);
 
   return (
@@ -51,7 +53,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ item, onPress }) => {
             <Image source={{ uri: item.home_icon }} style={styles.badge} />
           ) : (
             <View style={[styles.badge, styles.placeholder]}>
-              <Text style={styles.initial}>{item.home_team.charAt(0)}</Text>
+              <Text style={styles.initial}>{(item.home_team || '?').charAt(0)}</Text>
             </View>
           )}
           <Text style={styles.teamName} numberOfLines={2}>
@@ -67,7 +69,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ item, onPress }) => {
               </Text>
               <View style={[styles.pill, isLive && styles.livePill]}>
                 <Text style={[styles.pillText, isLive && styles.livePillText]}>
-                  {isLive ? 'LIVE' : 'FT'}
+                  {isLive ? liveLabel : 'FT'}
                 </Text>
               </View>
             </>
@@ -86,7 +88,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ item, onPress }) => {
             <Image source={{ uri: item.away_icon }} style={styles.badge} />
           ) : (
             <View style={[styles.badge, styles.placeholder]}>
-              <Text style={styles.initial}>{item.away_team.charAt(0)}</Text>
+              <Text style={styles.initial}>{(item.away_team || '?').charAt(0)}</Text>
             </View>
           )}
           <Text style={styles.teamName} numberOfLines={2}>
@@ -97,6 +99,17 @@ export const MatchCard: React.FC<MatchCardProps> = ({ item, onPress }) => {
     </TouchableOpacity>
   );
 };
+
+export const MatchCard = React.memo(
+  MatchCardComponent,
+  (prev, next) =>
+    prev.item === next.item ||
+    (prev.item.event_id === next.item.event_id &&
+      prev.item.status === next.item.status &&
+      prev.item.home_score === next.item.home_score &&
+      prev.item.away_score === next.item.away_score &&
+      prev.item.match_time === next.item.match_time)
+);
 
 const styles = StyleSheet.create({
   card: {

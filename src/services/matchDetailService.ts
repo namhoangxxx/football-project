@@ -1,14 +1,6 @@
+import { SUPABASE_HEADERS, SUPABASE_URL } from '../config/supabase';
 import { MatchEventItem, MatchStats, TeamLineup } from '../types/matchDetail';
 import { MatchTeamIdentities, TeamIdentity } from '../types/tactical';
-
-const SUPABASE_URL = 'https://pgwrrhvijrjcszihswnm.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_01cdBMzHDEs5fVjPY10DRg_iONp1RQE';
-
-const supaHeaders = {
-  apikey: SUPABASE_ANON_KEY,
-  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-  'Content-Type': 'application/json',
-};
 
 export const getMatchTeamIdentities = async (
   homeTeamId: number,
@@ -27,7 +19,7 @@ export const getMatchTeamIdentities = async (
 
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/team_map?football_data_id=in.(${ids.join(',')})&select=football_data_id,team_name,espn_id,espn_name,api_football_id`,
-      { method: 'GET', headers: supaHeaders }
+      { method: 'GET', headers: SUPABASE_HEADERS }
     );
 
     if (!res.ok) return defaultResult;
@@ -65,7 +57,7 @@ export const getMatchStats = async (
     const cleanEventId = String(eventId).trim();
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/match_details?event_id=eq.${encodeURIComponent(cleanEventId)}&select=*`,
-      { method: 'GET', headers: supaHeaders }
+      { method: 'GET', headers: SUPABASE_HEADERS }
     );
     if (res.ok) {
       const data = await res.json();
@@ -85,7 +77,7 @@ export const getMatchEventsFromSupabase = async (
     const cleanEventId = String(eventId).trim();
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/match_events?event_id=eq.${encodeURIComponent(cleanEventId)}&select=events`,
-      { method: 'GET', headers: supaHeaders }
+      { method: 'GET', headers: SUPABASE_HEADERS }
     );
     if (res.ok) {
       const data = await res.json();
@@ -107,7 +99,7 @@ export const getMatchLineupsFromSupabase = async (
     const cleanEventId = String(eventId).trim();
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/match_lineups?event_id=eq.${encodeURIComponent(cleanEventId)}&select=lineups`,
-      { method: 'GET', headers: supaHeaders }
+      { method: 'GET', headers: SUPABASE_HEADERS }
     );
     if (res.ok) {
       const data = await res.json();

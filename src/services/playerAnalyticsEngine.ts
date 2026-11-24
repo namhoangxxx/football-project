@@ -2,6 +2,8 @@ import { Match } from '../types/football';
 import { MatchRatingPoint, PlayerAnalyticsProfile, PlayerRadarAxes } from '../types/playerAnalytics';
 import { generateProsAndCons } from '../utils/playerInsights';
 import { normalizePositionCode } from '../utils/playerPosition';
+import { buildCanonicalPlayerId, isSameClubName } from '../utils/textNormalize';
+import { PlayerMatchHistoryItem } from './playerService';
 
 const clamp = (val: number, min = 20, max = 99): number =>
   Math.max(min, Math.min(max, Math.round(val)));
@@ -26,15 +28,22 @@ export function buildPlayerAnalyticsProfile(
     number?: number;
     pos?: string;
     rawStats?: Record<string, any>;
+    recentMatches?: PlayerMatchHistoryItem[];
   },
   allMatches: Match[] = []
 ): PlayerAnalyticsProfile {
   const pos = normalizePositionCode(params.pos);
-  const rng = createRng(`${params.teamName}::${params.name}`);
+  const canonicalId = buildCanonicalPlayerId(params.teamName, params.name);
+  const rng = createRng(canonicalId);
   const raw = params.rawStats || {};
+  const recentLogs = params.recentMatches || [];
 
   const teamMatches = allMatches
-    .filter((m) => m.status === 'FINISHED' && (m.home_team === params.teamName || m.away_team === params.teamName))
+    .filter(
+      (m) =>
+        m.status === 'FINISHED' &&
+        (isSameClubName(m.home_team, params.teamName) || isSameClubName(m.away_team, params.teamName))
+    )
     .slice(0, 8);
 
   const appearances = raw.appearances ?? Math.max(8, teamMatches.length || Math.floor(10 + rng() * 14));
@@ -87,20 +96,47 @@ export function buildPlayerAnalyticsProfile(
   });
 
   const baseRating = raw.rating ?? Number((6.6 + (radar.shooting + radar.passing + radar.defending) / 380).toFixed(2));
-  const sourceMatches = teamMatches.length > 0 ? teamMatches : Array.from({ length: 7 });
+  const matchTimeLookup = new Map(allMatches.map((m) => [String(m.event_id), m.match_time]));
 
-  const formTrend: MatchRatingPoint[] = sourceMatches.slice(0, 7).reverse().map((m: any, idx) => {
-    const rating = Number(Math.max(5.5, Math.min(9.4, baseRating + (rng() - 0.46) * 1.3)).toFixed(1));
-    return {
-      matchId: String(m?.event_id || idx),
-      opponent: m ? (m.home_team === params.teamName ? m.away_team : m.home_team) : `Vòng ${idx + 1}`,
-      dateLabel: m?.match_time ? new Date(m.match_time).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }) : `V${idx + 1}`,
-      rating,
-      minutes: Math.floor(65 + rng() * 25),
-      goals: rating >= 7.8 && rng() > 0.45 ? 1 : 0,
-      assists: rating >= 7.5 && rng() > 0.5 ? 1 : 0,
-    };
-  });
+  const formTrend: MatchRatingPoint[] =
+    recentLogs.length > 0
+      ? recentLogs
+          .slice(0, 7)
+          .reverse()
+          .map((log, idx) => {
+            const matchTime = matchTimeLookup.get(String(log.eventId));
+            const contribBonus = log.goals * 0.75 + log.assists * 0.55 + (log.role === 'Đá chính' ? 0.15 : -0.15);
+            const rating = Number(
+              Math.max(5.8, Math.min(9.6, baseRating + contribBonus + (rng() - 0.5) * 0.45)).toFixed(1)
+            );
+            return {
+              matchId: String(log.eventId),
+              opponent: log.opponent,
+              dateLabel: matchTime
+                ? new Date(matchTime).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })
+                : `T${idx + 1}`,
+              rating,
+              minutes: log.role === 'Đá chính' ? 84 : 25,
+              goals: log.goals,
+              assists: log.assists,
+            };
+          })
+      : (teamMatches.length > 0 ? teamMatches : Array.from({ length: 7 }))
+          .slice(0, 7)
+          .reverse()
+          .map((m: any, idx) => {
+            const rating = Number(Math.max(5.5, Math.min(9.4, baseRating + (rng() - 0.46) * 1.3)).toFixed(1));
+            const isHome = m ? isSameClubName(m.home_team, params.teamName) : false;
+            return {
+              matchId: String(m?.event_id || idx),
+              opponent: m ? (isHome ? m.away_team : m.home_team) : `Vòng ${idx + 1}`,
+              dateLabel: m?.match_time ? new Date(m.match_time).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }) : `V${idx + 1}`,
+              rating,
+              minutes: Math.floor(65 + rng() * 25),
+              goals: rating >= 7.8 && rng() > 0.45 ? 1 : 0,
+              assists: rating >= 7.5 && rng() > 0.5 ? 1 : 0,
+            };
+          });
 
   const recent5 = formTrend.slice(-5);
   const recent5Rating = recent5.length > 0
@@ -109,7 +145,7 @@ export function buildPlayerAnalyticsProfile(
   const seasonRating = Number(baseRating.toFixed(2));
 
   return {
-    id: `${params.teamName}-${params.name}`,
+    id: canonicalId,
     name: params.name,
     teamName: params.teamName,
     number: params.number || 0,

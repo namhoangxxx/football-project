@@ -1,4 +1,5 @@
 import React from 'react';
+import { useWindowDimensions } from 'react-native';
 import Svg, { Circle, Line, Rect } from 'react-native-svg';
 
 interface PitchBaseProps {
@@ -8,14 +9,17 @@ interface PitchBaseProps {
 }
 
 export const PitchBase: React.FC<PitchBaseProps> = ({
-  width = 320,
-  height = 218,
+  width,
+  height,
   children,
 }) => {
+  const { width: windowWidth } = useWindowDimensions();
+  const resolvedWidth = width ?? Math.max(240, Math.min(windowWidth - 56, 400));
+  const resolvedHeight = height ?? Math.round(resolvedWidth * 0.68);
   const strokeColor = 'rgba(255, 255, 255, 0.35)';
 
   return (
-    <Svg width={width} height={height} viewBox="0 0 100 68">
+    <Svg width={resolvedWidth} height={resolvedHeight} viewBox="0 0 100 68">
       {/* Mặt cỏ sân */}
       <Rect x="0" y="0" width="100" height="68" rx="2" fill="#163828" />
 

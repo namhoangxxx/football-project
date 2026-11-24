@@ -1,40 +1,69 @@
-name: Sync Matches & Details
+name: Sync Football Data & Players
 
 on:
   schedule:
-    - cron: '0 1 * * *'
+    # 01:00 UTC = 08:00 sáng VN (chốt kết quả, stats & cầu thủ loạt trận đêm qua)
+    # 15:00 UTC = 22:00 tối VN (cập nhật kết quả loạt trận đá sớm cuối tuần)
+    - cron: '0 1,15 * * *'
   workflow_dispatch:
+    inputs:
+      full_sync:
+        description: 'Đồng bộ toàn mùa & backfill lịch sử (--full / --backfill)'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: supabase-football-sync
+  cancel-in-progress: false
 
 jobs:
   sync-job:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests supabase python-dotenv
 
-      - name: Sync Matches List
+      - name: 1. Sync Matches List (football-data.org)
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           FOOTBALL_API_KEY: ${{ secrets.FOOTBALL_API_KEY }}
         run: |
-          python sync_matches.py
+          if [ "${{ inputs.full_sync }}" = "true" ]; then
+            python sync_matches.py --full
+          else
+            python sync_matches.py
+          fi
 
-      - name: Sync Match Details, Events & Lineups
+      - name: 2. Sync Match Details, Events & Lineups (ESPN)
+        continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
-          python sync_match_details.py
+          if [ "${{ inputs.full_sync }}" = "true" ]; then
+            python sync_match_details.py --backfill
+          else
+            python sync_match_details.py
+          fi
+
+      - name: 3. Sync Players & Season Stats
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python sync_players.py

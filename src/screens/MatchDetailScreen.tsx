@@ -13,7 +13,11 @@ import { AppIcon, IconName } from '../components/common/AppIcon';
 import { MatchEventsTab } from '../components/match/MatchEventsTab';
 import { MatchLineupsTab } from '../components/match/MatchLineupsTab';
 import { MatchPredictionCard } from '../components/match/MatchPredictionCard';
-import { MatchScoreboard } from '../components/match/MatchScoreboard';
+import {
+  formatStatusLabel,
+  isMatchCancelledOrPostponed,
+  MatchScoreboard,
+} from '../components/match/MatchScoreboard';
 import { MatchStatsTab } from '../components/match/MatchStatsTab';
 import { MatchTacticsTab } from '../components/match/MatchTacticsTab';
 import {
@@ -57,11 +61,13 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
   const [teamIdentities, setTeamIdentities] = useState<MatchTeamIdentities | undefined>();
   const [loading, setLoading] = useState(false);
 
+  const normalizedStatus = String(match.status || '').trim().toUpperCase();
   const isFinishedOrLive =
-    match.status === 'IN_PLAY' ||
-    match.status === 'PAUSED' ||
-    match.status === 'HALFTIME' ||
-    match.status === 'FINISHED';
+    normalizedStatus === 'IN_PLAY' ||
+    normalizedStatus === 'PAUSED' ||
+    normalizedStatus === 'HALFTIME' ||
+    normalizedStatus === 'FINISHED';
+  const isCancelledOrPostponed = isMatchCancelledOrPostponed(normalizedStatus);
 
   const matchDate = match.match_time
     ? new Date(match.match_time).toLocaleDateString('vi-VN', {
@@ -75,7 +81,17 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
 
   useEffect(() => {
     let isMounted = true;
-    if (!isFinishedOrLive) return;
+
+    setActiveTab('STATS');
+    setStats(null);
+    setEvents([]);
+    setLineups([]);
+    setTeamIdentities(undefined);
+
+    if (!isFinishedOrLive) {
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     Promise.all([
@@ -102,7 +118,14 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [match, isFinishedOrLive]);
+  }, [
+    match.event_id,
+    match.home_team_id,
+    match.away_team_id,
+    match.home_team,
+    match.away_team,
+    isFinishedOrLive,
+  ]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -121,6 +144,7 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
         <MatchScoreboard
           match={match}
           isFinishedOrLive={isFinishedOrLive}
+          isCancelledOrPostponed={isCancelledOrPostponed}
           matchDate={matchDate}
           onSelectClub={onSelectClub}
         />
@@ -167,6 +191,16 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
               </>
             )}
           </>
+        ) : isCancelledOrPostponed ? (
+          <View style={styles.noticeBox}>
+            <Text style={styles.noticeTitle}>
+              Trận đấu đang ở trạng thái: {formatStatusLabel(normalizedStatus)}
+            </Text>
+            <Text style={styles.noticeText}>
+              Mô hình dự đoán tỷ số và dữ liệu trực tiếp tạm ẩn cho đến khi ban tổ chức cập nhật
+              lịch thi đấu mới.
+            </Text>
+          </View>
         ) : (
           <MatchPredictionCard match={match} allMatches={allMatches} />
         )}
@@ -214,4 +248,22 @@ const styles = StyleSheet.create({
   activeTabText: { color: '#00E676', fontWeight: '700' },
   loadingBox: { backgroundColor: '#1A1A1A', borderRadius: 12, padding: 20, alignItems: 'center' },
   loadingText: { color: '#999', marginTop: 8, fontSize: 13 },
+  noticeBox: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#FF525244',
+  },
+  noticeTitle: {
+    color: '#FF5252',
+    fontSize: 13.5,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  noticeText: {
+    color: '#94A3B8',
+    fontSize: 12.5,
+    lineHeight: 18,
+  },
 });

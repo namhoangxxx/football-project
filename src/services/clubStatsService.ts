@@ -1,14 +1,8 @@
+import { SUPABASE_HEADERS, SUPABASE_URL } from '../config/supabase';
 import { Match } from '../types/football';
 import { TeamLineup } from '../types/matchDetail';
 import { normalizePositionCode, PlayerPositionCode } from '../utils/playerPosition';
-
-const SUPABASE_URL = 'https://pgwrrhvijrjcszihswnm.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_01cdBMzHDEs5fVjPY10DRg_iONp1RQE';
-
-const sbHeaders = {
-  apikey: SUPABASE_ANON_KEY,
-  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-};
+import { getClubSearchVariants, isSameClubName, isSamePlayerName } from '../utils/textNormalize';
 
 export interface ClubSeasonSummary {
   played: number;
@@ -44,8 +38,8 @@ export const computeClubSeasonSummary = (
 
   finished.forEach((m) => {
     const isHome =
-      m.home_team_id === teamId ||
-      m.home_team.toLowerCase().includes(teamName.toLowerCase());
+      (teamId > 0 && m.home_team_id === teamId) ||
+      isSameClubName(m.home_team, teamName);
     const scored = Number(isHome ? m.home_score : m.away_score) || 0;
     const conceded = Number(isHome ? m.away_score : m.home_score) || 0;
 
@@ -82,99 +76,133 @@ export const fetchClubSquadFromLineups = async (
   matches: Match[],
   teamName: string
 ): Promise<ClubPlayerItem[]> => {
-  const cleanKeyword = teamName
-    .replace(/\b(FC|CF|BSC|SV|AFC|SSC|RB|VfB|VfL|1\.|AC)\b/gi, '')
-    .trim()
-    .toLowerCase()
-    .split(' ')[0];
+  const variants = getClubSearchVariants(teamName);
+  const orFilter = variants
+    .map((v) => `team_name.ilike.*${encodeURIComponent(v)}*`)
+    .join(',');
 
-  // 1. Ưu tiên đọc từ bảng players mới trên Supabase
+  const squadList: ClubPlayerItem[] = [];
+
+  // 1. Đọc từ player_season_summary_view (hoặc fallback bảng players) để không bị cắt 1000 dòng
   try {
-    const pRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/players?team_name=ilike.*${encodeURIComponent(
-        cleanKeyword
-      )}*&select=*`,
-      { headers: sbHeaders }
+    let pRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/player_season_summary_view?or=(${orFilter})&select=*`,
+      { headers: SUPABASE_HEADERS }
     );
+    let usedView = pRes.ok;
+
+    if (!pRes.ok) {
+      usedView = false;
+      pRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/players?or=(${orFilter})&select=*`,
+        { headers: SUPABASE_HEADERS }
+      );
+    }
+
     if (pRes.ok) {
-      const pRows = await pRes.json();
-      if (Array.isArray(pRows) && pRows.length > 0) {
+      const rawRows = await pRes.json();
+      const pRows = Array.isArray(rawRows)
+        ? rawRows.filter((p: any) => isSameClubName(p.team_name, teamName))
+        : [];
+
+      const appCount = new Map<number, number>();
+      if (!usedView && pRows.length > 0) {
         const ids = pRows.map((p: any) => p.player_id).join(',');
         const sRes = await fetch(
-          `${SUPABASE_URL}/rest/v1/player_match_stats?player_id=in.(${ids})&select=player_id`,
-          { headers: sbHeaders }
+          `${SUPABASE_URL}/rest/v1/player_match_stats?player_id=in.(${ids})&select=player_id&limit=5000`,
+          { headers: SUPABASE_HEADERS }
         );
-        const appCount = new Map<number, number>();
         if (sRes.ok) {
           const sRows = await sRes.json();
           sRows.forEach((r: { player_id: number }) => {
             appCount.set(r.player_id, (appCount.get(r.player_id) || 0) + 1);
           });
         }
+      }
 
-        return pRows.map((p: any) => ({
-          id: Number(p.player_id),
+      pRows.forEach((p: any) => {
+        const pid = Number(p.player_id);
+        const apps = usedView
+          ? Number(p.appearances) || (Number(p.starts) || 0) + (Number(p.sub_appearances) || 0)
+          : appCount.get(pid) || 0;
+
+        squadList.push({
+          id: pid,
           name: p.name,
           number: p.jersey_number || 0,
           pos: normalizePositionCode(p.position_code),
-          appearances: appCount.get(Number(p.player_id)) || 0,
+          appearances: apps,
           nationality: p.nationality || undefined,
           age: p.age || undefined,
           photoUrl: p.photo_url || undefined,
-        }));
-      }
+        });
+      });
     }
   } catch {
-    // Fallback sang match_lineups bên dưới
+    // Tiếp tục quét match_lineups bên dưới
   }
 
-  // 2. Fallback từ match_lineups nếu đội chưa có trong bảng players
+  // 2. Quét bổ sung tới 38 trận từ match_lineups để cập nhật số trận & cầu thủ mới
   try {
     const eventIds = matches
       .filter((m) => m.status === 'FINISHED')
-      .slice(0, 10)
+      .slice(0, 38)
       .map((m) => String(m.event_id).trim())
       .filter(Boolean);
 
-    if (eventIds.length === 0) return [];
-
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/match_lineups?event_id=in.(${eventIds.join(',')})&select=lineups`,
-      { headers: sbHeaders }
-    );
-    if (!res.ok) return [];
-
-    const rows = await res.json();
-    const playerMap = new Map<string, ClubPlayerItem>();
-
-    rows.forEach((row: { lineups?: TeamLineup[] }) => {
-      const teamLineup = row.lineups?.find((l) =>
-        String(l.team?.name || '').toLowerCase().includes(cleanKeyword)
+    if (eventIds.length > 0) {
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/match_lineups?event_id=in.(${eventIds.join(',')})&select=lineups`,
+        { headers: SUPABASE_HEADERS }
       );
-      if (!teamLineup) return;
+      if (res.ok) {
+        const rows = await res.json();
+        const lineupAgg = new Map<string, ClubPlayerItem>();
 
-      [...(teamLineup.startXI || []), ...(teamLineup.substitutes || [])].forEach(
-        ({ player }) => {
-          if (!player?.name) return;
-          const key = player.name.toLowerCase();
-          const existing = playerMap.get(key);
-          if (existing) {
-            existing.appearances += 1;
+        rows.forEach((row: { lineups?: TeamLineup[] }) => {
+          const teamLineup = row.lineups?.find((l) =>
+            isSameClubName(l.team?.name, teamName)
+          );
+          if (!teamLineup) return;
+
+          [...(teamLineup.startXI || []), ...(teamLineup.substitutes || [])].forEach(
+            ({ player }) => {
+              if (!player?.name) return;
+              const key = player.name.toLowerCase();
+              const existing = lineupAgg.get(key);
+              if (existing) {
+                existing.appearances += 1;
+              } else {
+                lineupAgg.set(key, {
+                  id: player.id || lineupAgg.size + 100000,
+                  name: player.name,
+                  number: player.number || 0,
+                  pos: normalizePositionCode(player.pos),
+                  appearances: 1,
+                });
+              }
+            }
+          );
+        });
+
+        for (const lPlayer of lineupAgg.values()) {
+          const matchInSquad = squadList.find((s) => isSamePlayerName(s.name, lPlayer.name));
+          if (matchInSquad) {
+            if (matchInSquad.appearances === 0) {
+              matchInSquad.appearances = lPlayer.appearances;
+            }
+            if (!matchInSquad.number && lPlayer.number) {
+              matchInSquad.number = lPlayer.number;
+            }
           } else {
-            playerMap.set(key, {
-              id: player.id || playerMap.size + 1,
-              name: player.name,
-              number: player.number || 0,
-              pos: normalizePositionCode(player.pos),
-              appearances: 1,
-            });
+            squadList.push(lPlayer);
           }
         }
-      );
-    });
-
-    return Array.from(playerMap.values());
+      }
+    }
   } catch {
-    return [];
+    // Giữ danh sách đã lấy được
   }
+
+  return squadList;
 };

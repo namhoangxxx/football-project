@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg';
 import { MatchRatingPoint } from '../../types/playerAnalytics';
 
@@ -12,11 +12,13 @@ export const PlayerFormTrendChart: React.FC<PlayerFormTrendChartProps> = ({
   points,
   seasonRating,
 }) => {
+  const { width: windowWidth } = useWindowDimensions();
+
   if (!points || points.length === 0) {
     return <Text style={styles.empty}>Chưa đủ dữ liệu vòng đấu để vẽ biểu đồ phong độ.</Text>;
   }
 
-  const width = 310;
+  const width = Math.max(240, Math.min(windowWidth - 60, 420));
   const height = 155;
   const padLeft = 28;
   const padRight = 16;
@@ -46,7 +48,7 @@ export const PlayerFormTrendChart: React.FC<PlayerFormTrendChartProps> = ({
 
   return (
     <View style={styles.container}>
-      <Svg width={width} height={height}>
+      <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
         {[6.0, 7.5, 9.0].map((tick) => {
           const y = getY(tick);
           return (

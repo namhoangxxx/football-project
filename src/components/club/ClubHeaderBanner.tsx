@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { Match } from '../../types/football';
+import { isSameClubName } from '../../utils/textNormalize';
 
 interface ClubHeaderBannerProps {
   teamId: number;
@@ -20,7 +21,7 @@ export const ClubHeaderBanner: React.FC<ClubHeaderBannerProps> = ({
     return finished.reverse().map((m) => {
       const isHome =
         m.home_team_id === teamId ||
-        m.home_team.toLowerCase().includes(teamName.toLowerCase());
+        (m.away_team_id !== teamId && isSameClubName(m.home_team, teamName));
       const gf = Number(isHome ? m.home_score : m.away_score) || 0;
       const ga = Number(isHome ? m.away_score : m.home_score) || 0;
       if (gf > ga) return 'W';
