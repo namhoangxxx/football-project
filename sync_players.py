@@ -1,5 +1,6 @@
 import json
 import os
+import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
@@ -62,8 +63,13 @@ def http_get_json(url: str, headers=None):
 def sb_upsert(table: str, rows: list, on_conflict: str):
     if not rows:
         return
-    for i in range(0, len(rows), 200):
-        chunk = rows[i : i + 200]
+
+    # Đảm bảo mọi object trong payload có cùng tập key (tránh lỗi PGRST102 của PostgREST)
+    all_keys = list(dict.fromkeys(k for row in rows for k in row.keys()))
+    normalized_rows = [{k: row.get(k) for k in all_keys} for row in rows]
+
+    for i in range(0, len(normalized_rows), 200):
+        chunk = normalized_rows[i : i + 200]
         data = json.dumps(chunk).encode("utf-8")
         req = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/{table}?on_conflict={on_conflict}",
@@ -71,8 +77,13 @@ def sb_upsert(table: str, rows: list, on_conflict: str):
             headers=SB_HEADERS,
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=25) as resp:
-            print(f"[{table}] Batch {i // 200 + 1}: HTTP {resp.status}")
+        try:
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                print(f"[{table}] Batch {i // 200 + 1}: HTTP {resp.status}")
+        except urllib.error.HTTPError as err:
+            err_body = err.read().decode("utf-8", errors="ignore")
+            print(f"❌ [{table}] Batch {i // 200 + 1} lỗi HTTP {err.code}: {err_body}")
+            raise
 
 
 def fetch_team_roster(args):
@@ -134,7 +145,6 @@ def main():
                 tm = t.get("team", {})
                 if tm.get("id"):
                     tid = int(tm["id"])
-                    # Ưu tiên giữ giải VĐQG làm giải chính của CLB
                     if tid not in tasks_by_team:
                         tasks_by_team[tid] = (lg, tid, tm.get("displayName", ""))
         except Exception as e:
@@ -158,7 +168,6 @@ def main():
         eid = str(row["event_id"])
         evs = events_by_id.get(eid, [])
 
-        # Lập bản đồ phút vào sân / rời sân từ sự kiện thay người
         sub_in_minute: dict[str, int] = {}
         sub_out_minute: dict[str, int] = {}
         for e in evs:
@@ -217,7 +226,6 @@ def main():
                         and str((e.get("player") or {}).get("name") or "").strip().lower() == pname
                     )
 
-                    # Bỏ qua cầu thủ dự bị không vào sân thi đấu
                     did_play = (
                         is_start
                         or bool(p.get("subbed_in"))
@@ -237,22 +245,26 @@ def main():
                         in_min = sub_in_minute.get(pname)
                         mins = max(1, 90 - in_min) if in_min else 20
 
-                    # Đảm bảo cầu thủ từ giải ngoài Top 5 cũng có mặt trong bảng players
                     if pid not in players_map:
                         players_map[pid] = {
                             "player_id": pid,
-                            "team_id": tid,
+                            "team_id": tid if tid > 0 else None,
                             "team_name": tname,
                             "name": raw_name,
                             "jersey_number": int(p["number"]) if str(p.get("number")).isdigit() else None,
                             "position_code": normalize_pos(p.get("pos", "")),
+                            "nationality": None,
+                            "age": None,
+                            "height": None,
+                            "weight": None,
+                            "photo_url": None,
                         }
 
                     stats_rows.append(
                         {
                             "event_id": eid,
                             "player_id": pid,
-                            "team_id": tid,
+                            "team_id": tid if tid > 0 else None,
                             "is_starter": is_start,
                             "minutes_played": mins,
                             "goals": goals,
