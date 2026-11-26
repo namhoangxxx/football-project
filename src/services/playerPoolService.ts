@@ -2,14 +2,9 @@ import { Match } from '../types/football';
 import { MatchEventItem, TeamLineup } from '../types/matchDetail';
 import { PlayerAnalyticsProfile } from '../types/playerAnalytics';
 import { normalizePositionCode, POS_META } from '../utils/playerPosition';
-import {
-  buildCanonicalPlayerId,
-  isSameClubName,
-  isSamePlayerName,
-  matchesSearchTokens,
-} from '../utils/textNormalize';
+import { buildCanonicalPlayerId, matchesSearchTokens } from '../utils/textNormalize';
 import { buildPlayerAnalyticsProfile } from './playerAnalyticsEngine';
-import { fetchAllSupabaseRows, getFullSeasonMatches } from './seasonHistoryService';
+import { fetchAllSupabaseRows } from './seasonHistoryService';
 
 let cachedPool: PlayerAnalyticsProfile[] | null = null;
 let poolPromise: Promise<PlayerAnalyticsProfile[]> | null = null;
@@ -103,8 +98,7 @@ async function fetchBaseSummaryRows(): Promise<PlayerSeasonSummaryRow[]> {
 }
 
 /**
- * Quét bổ sung toàn bộ cầu thủ từ match_lineups và match_events
- * để đảm bảo không bỏ sót cầu thủ nào chưa có trong bảng players
+ * Fallback O(1) qua Map chỉ dùng khi view/bảng players trên Supabase chưa có dữ liệu
  */
 async function fetchLineupDerivedRows(): Promise<PlayerSeasonSummaryRow[]> {
   const [lineupRows, eventRows] = await Promise.all([
@@ -122,21 +116,15 @@ async function fetchLineupDerivedRows(): Promise<PlayerSeasonSummaryRow[]> {
 
   const playerMap = new Map<string, PlayerSeasonSummaryRow>();
 
-  const findOrCreateEntry = (
+  const getOrCreateEntry = (
     teamName: string,
     playerName: string,
     number = 0,
     pos?: string
   ): PlayerSeasonSummaryRow => {
     const canonical = buildCanonicalPlayerId(teamName, playerName);
-    const exact = playerMap.get(canonical);
-    if (exact) return exact;
-
-    for (const item of playerMap.values()) {
-      if (isSameClubName(item.team_name || '', teamName) && isSamePlayerName(item.name, playerName)) {
-        return item;
-      }
-    }
+    const existing = playerMap.get(canonical);
+    if (existing) return existing;
 
     const created: PlayerSeasonSummaryRow = {
       name: playerName.trim(),
@@ -164,7 +152,7 @@ async function fetchLineupDerivedRows(): Promise<PlayerSeasonSummaryRow[]> {
       for (const item of teamLineup.startXI || []) {
         const p = item?.player;
         if (!p?.name) continue;
-        const entry = findOrCreateEntry(teamName, p.name, p.number || 0, p.pos);
+        const entry = getOrCreateEntry(teamName, p.name, p.number || 0, p.pos);
         entry.starts = (entry.starts || 0) + 1;
         entry.appearances = (entry.appearances || 0) + 1;
         if (!entry.jersey_number && p.number) entry.jersey_number = p.number;
@@ -174,9 +162,9 @@ async function fetchLineupDerivedRows(): Promise<PlayerSeasonSummaryRow[]> {
       }
 
       for (const item of teamLineup.substitutes || []) {
-        const p = item?.player;
-        if (!p?.name) continue;
-        const entry = findOrCreateEntry(teamName, p.name, p.number || 0, p.pos);
+        const p = item?.player as (typeof item.player & { subbed_in?: boolean }) | undefined;
+        if (!p?.name || !p.subbed_in) continue;
+        const entry = getOrCreateEntry(teamName, p.name, p.number || 0, p.pos);
         entry.sub_appearances = (entry.sub_appearances || 0) + 1;
         entry.appearances = (entry.appearances || 0) + 1;
         if (!entry.jersey_number && p.number) entry.jersey_number = p.number;
@@ -195,15 +183,15 @@ async function fetchLineupDerivedRows(): Promise<PlayerSeasonSummaryRow[]> {
 
       if (ev.type === 'Goal' && !String(ev.detail || '').toLowerCase().includes('own')) {
         if (ev.player?.name) {
-          const scorer = findOrCreateEntry(teamName, ev.player.name);
+          const scorer = getOrCreateEntry(teamName, ev.player.name);
           scorer.goals = (scorer.goals || 0) + 1;
         }
         if (ev.assist?.name) {
-          const assister = findOrCreateEntry(teamName, ev.assist.name);
+          const assister = getOrCreateEntry(teamName, ev.assist.name);
           assister.assists = (assister.assists || 0) + 1;
         }
       } else if (ev.type === 'Card' && ev.player?.name) {
-        const carded = findOrCreateEntry(teamName, ev.player.name);
+        const carded = getOrCreateEntry(teamName, ev.player.name);
         if (String(ev.detail || '').toLowerCase().includes('red')) {
           carded.red_cards = (carded.red_cards || 0) + 1;
         } else {
@@ -217,49 +205,21 @@ async function fetchLineupDerivedRows(): Promise<PlayerSeasonSummaryRow[]> {
 }
 
 export async function fetchAllPlayersAnalyticsPool(
-  allMatches: Match[] = []
+  _allMatches: Match[] = []
 ): Promise<PlayerAnalyticsProfile[]> {
   if (cachedPool && cachedPool.length > 0) return cachedPool;
   if (poolPromise) return poolPromise;
 
   poolPromise = (async () => {
     try {
-      const [baseRows, lineupRows, fullMatches] = await Promise.all([
-        fetchBaseSummaryRows(),
-        fetchLineupDerivedRows(),
-        getFullSeasonMatches(allMatches),
-      ]);
-
-      const mergedRows: PlayerSeasonSummaryRow[] = [...baseRows];
-
-      for (const lRow of lineupRows) {
-        const existing = mergedRows.find(
-          (b) =>
-            isSameClubName(b.team_name || '', lRow.team_name || '') &&
-            isSamePlayerName(b.name, lRow.name)
-        );
-        if (existing) {
-          // Bổ sung chỉ số từ lineup/events nếu bảng thống kê chính chưa có
-          if ((existing.appearances || 0) === 0 && (lRow.appearances || 0) > 0) {
-            existing.starts = lRow.starts;
-            existing.sub_appearances = lRow.sub_appearances;
-            existing.appearances = lRow.appearances;
-            existing.goals = Math.max(existing.goals || 0, lRow.goals || 0);
-            existing.assists = Math.max(existing.assists || 0, lRow.assists || 0);
-            existing.yellow_cards = Math.max(existing.yellow_cards || 0, lRow.yellow_cards || 0);
-            existing.red_cards = Math.max(existing.red_cards || 0, lRow.red_cards || 0);
-          }
-          if (!existing.jersey_number && lRow.jersey_number) {
-            existing.jersey_number = lRow.jersey_number;
-          }
-        } else {
-          mergedRows.push(lRow);
-        }
+      let rows = await fetchBaseSummaryRows();
+      if (rows.length === 0) {
+        rows = await fetchLineupDerivedRows();
       }
 
       const uniqueMap = new Map<string, PlayerAnalyticsProfile>();
 
-      for (const row of mergedRows) {
+      for (const row of rows) {
         if (!row?.name) continue;
 
         const starts = Number(row.starts) || 0;
@@ -285,7 +245,7 @@ export async function fetchAllPlayersAnalyticsPool(
                   }
                 : undefined,
           },
-          fullMatches
+          []
         );
 
         const canonicalId = buildCanonicalPlayerId(profile.teamName, profile.name);

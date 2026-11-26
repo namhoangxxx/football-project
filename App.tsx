@@ -22,8 +22,6 @@ import { MatchDetailScreen } from './src/screens/MatchDetailScreen';
 import { PlayerDetailScreen } from './src/screens/PlayerDetailScreen';
 import { StandingsScreen } from './src/screens/StandingsScreen';
 import { fetchMatchesFromSupabase } from './src/services/footballApi';
-import { fetchAllPlayersAnalyticsPool } from './src/services/playerPoolService';
-import { getFullSeasonMatches } from './src/services/seasonHistoryService';
 import { Match } from './src/types/football';
 import { matchesSearchTokens } from './src/utils/textNormalize';
 
@@ -31,7 +29,6 @@ const LIVE_STATUSES = new Set(['IN_PLAY', 'PAUSED', 'HALFTIME']);
 
 export default function App() {
   const [matches, setMatches] = useState<Match[]>([]);
-  const [seasonMatches, setSeasonMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<HomeTabType>('FINISHED');
@@ -81,15 +78,7 @@ export default function App() {
       }
 
       const data = await fetchMatchesFromSupabase();
-      const list = data || [];
-      setMatches(list);
-
-      getFullSeasonMatches(list).then((full) => {
-        if (full.length > 0) {
-          setSeasonMatches(full);
-          fetchAllPlayersAnalyticsPool(full);
-        }
-      });
+      setMatches(data || []);
     } catch (error) {
       console.error('Lỗi lấy dữ liệu trận đấu:', error);
     } finally {
@@ -101,11 +90,6 @@ export default function App() {
   useEffect(() => {
     loadMatches(false);
   }, [loadMatches]);
-
-  const fullMatchesPool = useMemo(
-    () => (seasonMatches.length > 0 ? seasonMatches : matches),
-    [seasonMatches, matches]
-  );
 
   const liveCount = useMemo(
     () => matches.filter((m) => LIVE_STATUSES.has(m.status)).length,
@@ -166,7 +150,7 @@ export default function App() {
           teamName={selectedPlayer.teamName}
           number={selectedPlayer.number}
           pos={selectedPlayer.pos}
-          allMatches={fullMatchesPool}
+          allMatches={matches}
           onBack={() => setSelectedPlayer(null)}
         />
       );
@@ -176,7 +160,7 @@ export default function App() {
       return (
         <MatchDetailScreen
           match={selectedMatch}
-          allMatches={fullMatchesPool}
+          allMatches={matches}
           onBack={() => setSelectedMatch(null)}
           onSelectClub={(teamId, teamName, logoUrl) => {
             setSelectedMatch(null);
@@ -260,21 +244,23 @@ export default function App() {
           </>
         )}
 
-        <PlayerSearchModal
-          visible={playerSearchOpen}
-          allMatches={fullMatchesPool}
-          onClose={() => setPlayerSearchOpen(false)}
-          onSelectPlayer={(p) => {
-            setPlayerSearchOpen(false);
-            setSelectedPlayer({
-              id: Number(String(p.id).replace(/\D/g, '')) || 0,
-              name: p.name,
-              teamName: p.teamName,
-              number: p.number,
-              pos: p.pos,
-            });
-          }}
-        />
+        {playerSearchOpen && (
+          <PlayerSearchModal
+            visible={playerSearchOpen}
+            allMatches={matches}
+            onClose={() => setPlayerSearchOpen(false)}
+            onSelectPlayer={(p) => {
+              setPlayerSearchOpen(false);
+              setSelectedPlayer({
+                id: Number(String(p.id).replace(/\D/g, '')) || 0,
+                name: p.name,
+                teamName: p.teamName,
+                number: p.number,
+                pos: p.pos,
+              });
+            }}
+          />
+        )}
       </SafeAreaView>
     );
   };
