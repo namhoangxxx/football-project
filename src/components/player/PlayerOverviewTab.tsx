@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { PlayerMatchHistoryItem } from '../../services/playerService';
 import { PlayerAnalyticsProfile } from '../../types/playerAnalytics';
+import { normalizePositionCode, POS_META } from '../../utils/playerPosition';
 import { PlayerFormTrendChart } from './PlayerFormTrendChart';
 
 interface PlayerOverviewTabProps {
@@ -14,6 +15,36 @@ export const PlayerOverviewTab: React.FC<PlayerOverviewTabProps> = ({
   recentMatches = [],
 }) => {
   const isFormUp = profile.formDelta >= 0;
+  const posCode = normalizePositionCode(profile.pos);
+  const group = POS_META[posCode].group;
+
+  const statItems: Array<{ label: string; value: string }> =
+    group === 'GK'
+      ? [
+          { label: 'Số trận / Phút', value: `${profile.appearances} / ${profile.minutes}'` },
+          { label: 'Phản xạ / Cản phá', value: `${profile.radar.defending}/99` },
+          { label: 'Phát động bóng', value: `${profile.radar.passing}/99` },
+          { label: 'Chuyền chuẩn', value: `${profile.passAccuracy}%` },
+          { label: 'Phân phối dài', value: `${profile.radar.creativity}/99` },
+          { label: 'Thẻ (Vàng / Đỏ)', value: `${profile.yellowCards} / ${profile.redCards}` },
+        ]
+      : group === 'DEF'
+      ? [
+          { label: 'Số trận / Phút', value: `${profile.appearances} / ${profile.minutes}'` },
+          { label: 'Tắc bóng / 90p', value: `${profile.tacklesPer90}` },
+          { label: 'Cắt bóng / 90p', value: `${profile.interceptionsPer90}` },
+          { label: 'Chuyền chuẩn', value: `${profile.passAccuracy}%` },
+          { label: 'Bàn / Kiến tạo', value: `${profile.goals} / ${profile.assists}` },
+          { label: 'Thẻ (Vàng / Đỏ)', value: `${profile.yellowCards} / ${profile.redCards}` },
+        ]
+      : [
+          { label: 'Số trận / Phút', value: `${profile.appearances} / ${profile.minutes}'` },
+          { label: 'Bàn thắng / xG', value: `${profile.goals} / ${profile.xg}` },
+          { label: 'Kiến tạo / xA', value: `${profile.assists} / ${profile.xa}` },
+          { label: 'Chuyền chuẩn', value: `${profile.passAccuracy}%` },
+          { label: 'Tắc bóng / 90p', value: `${profile.tacklesPer90}` },
+          { label: 'Rê bóng / 90p', value: `${profile.dribblesPer90}` },
+        ];
 
   return (
     <View style={styles.wrapper}>
@@ -61,12 +92,9 @@ export const PlayerOverviewTab: React.FC<PlayerOverviewTabProps> = ({
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Chỉ số Chuyên sâu Mùa giải</Text>
         <View style={styles.grid}>
-          <StatItem label="Số trận / Phút" value={`${profile.appearances} / ${profile.minutes}'`} />
-          <StatItem label="Bàn thắng / xG" value={`${profile.goals} / ${profile.xg}`} />
-          <StatItem label="Kiến tạo / xA" value={`${profile.assists} / ${profile.xa}`} />
-          <StatItem label="Chuyền chuẩn" value={`${profile.passAccuracy}%`} />
-          <StatItem label="Tắc bóng / 90p" value={`${profile.tacklesPer90}`} />
-          <StatItem label="Rê bóng / 90p" value={`${profile.dribblesPer90}`} />
+          {statItems.map((st) => (
+            <StatItem key={st.label} label={st.label} value={st.value} />
+          ))}
         </View>
       </View>
 

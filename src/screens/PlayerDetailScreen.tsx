@@ -6,10 +6,12 @@ import { PlayerCompareTab } from '../components/player/PlayerCompareTab';
 import { PlayerHeroHeader } from '../components/player/PlayerHeroHeader';
 import { PlayerOverviewTab } from '../components/player/PlayerOverviewTab';
 import { usePlayerAnalytics } from '../hooks/usePlayerAnalytics';
+import { resolveOfficialPlayerPosition } from '../services/clubStatsService';
 import { fetchAllPlayersAnalyticsPool } from '../services/playerPoolService';
 import { Match } from '../types/football';
 import { PlayerAnalyticsProfile } from '../types/playerAnalytics';
 import { findSimilarPlayers } from '../utils/playerInsights';
+import { normalizePositionCode, PlayerPositionCode } from '../utils/playerPosition';
 import { sharePlayerAnalyticsReport } from '../utils/shareReport';
 
 interface PlayerDetailProps {
@@ -32,14 +34,40 @@ export const PlayerDetailScreen: React.FC<PlayerDetailProps> = ({
   onBack,
 }) => {
   const [activeTab, setActiveTab] = useState<PlayerTab>('OVERVIEW');
+  const [compareTargetId, setCompareTargetId] = useState<string>('');
   const [realPool, setRealPool] = useState<PlayerAnalyticsProfile[]>([]);
+  const [officialPos, setOfficialPos] = useState<PlayerPositionCode | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    setOfficialPos(null);
+    setCompareTargetId('');
+    resolveOfficialPlayerPosition(undefined, playerName, teamName).then((resolvedPos) => {
+      if (isMounted) setOfficialPos(resolvedPos);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [playerName, teamName]);
+
+  const effectivePos = officialPos || normalizePositionCode(pos);
+
   const { profile, summary, loading } = usePlayerAnalytics({
     playerName,
     teamName,
     number,
-    pos,
+    pos: effectivePos,
     allMatches,
   });
+
+  const resolvedProfile: PlayerAnalyticsProfile = useMemo(
+    () => ({
+      ...profile,
+      pos: officialPos || normalizePositionCode(profile.pos || pos),
+      number: profile.number || number,
+    }),
+    [profile, officialPos, pos, number]
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -52,13 +80,13 @@ export const PlayerDetailScreen: React.FC<PlayerDetailProps> = ({
   }, [allMatches]);
 
   const comparisonPool = useMemo(() => {
-    const others = realPool.filter((p) => p.id !== profile.id);
-    return [profile, ...others];
-  }, [profile, realPool]);
+    const others = realPool.filter((p) => p.id !== resolvedProfile.id);
+    return [resolvedProfile, ...others];
+  }, [resolvedProfile, realPool]);
 
   const similarPlayers = useMemo(
-    () => findSimilarPlayers(profile, comparisonPool, 6),
-    [profile, comparisonPool]
+    () => findSimilarPlayers(resolvedProfile, comparisonPool, 6),
+    [resolvedProfile, comparisonPool]
   );
 
   return (
@@ -72,7 +100,7 @@ export const PlayerDetailScreen: React.FC<PlayerDetailProps> = ({
         <TouchableOpacity
           style={styles.shareBtn}
           activeOpacity={0.75}
-          onPress={() => sharePlayerAnalyticsReport(profile)}
+          onPress={() => sharePlayerAnalyticsReport(resolvedProfile)}
         >
           <AppIcon name="zap" size={16} color="#38BDF8" />
         </TouchableOpacity>
@@ -80,10 +108,10 @@ export const PlayerDetailScreen: React.FC<PlayerDetailProps> = ({
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <PlayerHeroHeader
-          name={profile.name}
-          teamName={profile.teamName}
-          number={profile.number}
-          pos={profile.pos}
+          name={resolvedProfile.name}
+          teamName={resolvedProfile.teamName}
+          number={resolvedProfile.number}
+          pos={resolvedProfile.pos}
           nationality={summary?.nationality}
           age={summary?.age}
           height={summary?.height}
@@ -112,18 +140,32 @@ export const PlayerDetailScreen: React.FC<PlayerDetailProps> = ({
         {loading ? (
           <ActivityIndicator size="small" color="#00E676" style={{ marginTop: 24 }} />
         ) : activeTab === 'OVERVIEW' ? (
-          <PlayerOverviewTab profile={profile} recentMatches={summary?.recentMatches} />
+          <PlayerOverviewTab profile={resolvedProfile} recentMatches={summary?.recentMatches} />
         ) : activeTab === 'COMPARE' ? (
-          <PlayerCompareTab primary={profile} pool={comparisonPool} />
+          <PlayerCompareTab
+            primary={resolvedProfile}
+            pool={comparisonPool}
+            initialOpponentId={compareTargetId}
+          />
         ) : (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>
               Cầu thủ tương đồng từ dữ liệu giải ({similarPlayers.length})
             </Text>
             {similarPlayers.map((item) => (
-              <View key={item.profile.id} style={styles.simRow}>
+              <TouchableOpacity
+                key={item.profile.id}
+                style={styles.simRow}
+                activeOpacity={0.75}
+                onPress={() => {
+                  setCompareTargetId(item.profile.id);
+                  setActiveTab('COMPARE');
+                }}
+              >
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.simName}>{item.profile.name} ({item.profile.pos})</Text>
+                  <Text style={styles.simName}>
+                    {item.profile.name} ({normalizePositionCode(item.profile.pos)})
+                  </Text>
                   <Text style={styles.simSub}>
                     {item.profile.teamName} • Nổi bật: {item.sharedStrength}
                   </Text>
@@ -131,7 +173,7 @@ export const PlayerDetailScreen: React.FC<PlayerDetailProps> = ({
                 <View style={styles.simBadge}>
                   <Text style={styles.simScore}>{item.similarity}%</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))}
           </View>
         )}

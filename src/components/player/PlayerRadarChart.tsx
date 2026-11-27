@@ -2,15 +2,20 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Line, Polygon, Text as SvgText } from 'react-native-svg';
 import { PlayerRadarAxes } from '../../types/playerAnalytics';
+import { PositionGroup } from '../../utils/playerPosition';
+
+type TacticalGroup = Exclude<PositionGroup, 'ALL'>;
 
 interface PlayerRadarChartProps {
   primaryName: string;
   primaryRadar: PlayerRadarAxes;
   secondaryName?: string;
   secondaryRadar?: PlayerRadarAxes;
+  positionGroup?: TacticalGroup;
+  isGoalkeeper?: boolean;
 }
 
-const AXES: Array<{ key: keyof PlayerRadarAxes; label: string }> = [
+const NEUTRAL_OUTFIELD_AXES: Array<{ key: keyof PlayerRadarAxes; label: string }> = [
   { key: 'shooting', label: 'Dứt điểm' },
   { key: 'creativity', label: 'Kiến tạo' },
   { key: 'passing', label: 'Chuyền bóng' },
@@ -19,12 +24,55 @@ const AXES: Array<{ key: keyof PlayerRadarAxes; label: string }> = [
   { key: 'discipline', label: 'Kỷ luật' },
 ];
 
+const AXES_BY_GROUP: Record<TacticalGroup, Array<{ key: keyof PlayerRadarAxes; label: string }>> = {
+  GK: [
+    { key: 'defending', label: 'Phản xạ' },
+    { key: 'passing', label: 'Phát động' },
+    { key: 'creativity', label: 'Phân phối' },
+    { key: 'dribbling', label: 'Chơi chân' },
+    { key: 'discipline', label: 'Kỷ luật' },
+    { key: 'shooting', label: 'Phát bóng' },
+  ],
+  DEF: [
+    { key: 'shooting', label: 'Không chiến' },
+    { key: 'creativity', label: 'Hỗ trợ biên' },
+    { key: 'passing', label: 'Triển khai' },
+    { key: 'dribbling', label: 'Thoát vây' },
+    { key: 'defending', label: 'Phòng ngự' },
+    { key: 'discipline', label: 'Kỷ luật' },
+  ],
+  MID: [
+    { key: 'shooting', label: 'Tuyến hai' },
+    { key: 'creativity', label: 'Kiến thiết' },
+    { key: 'passing', label: 'Chuyền bóng' },
+    { key: 'dribbling', label: 'Kéo bóng' },
+    { key: 'defending', label: 'Thu hồi' },
+    { key: 'discipline', label: 'Kỷ luật' },
+  ],
+  FWD: [
+    { key: 'shooting', label: 'Dứt điểm' },
+    { key: 'creativity', label: 'Kiến tạo' },
+    { key: 'passing', label: 'Liên kết' },
+    { key: 'dribbling', label: 'Đột phá' },
+    { key: 'defending', label: 'Pressing' },
+    { key: 'discipline', label: 'Kỷ luật' },
+  ],
+};
+
 export const PlayerRadarChart: React.FC<PlayerRadarChartProps> = ({
   primaryName,
   primaryRadar,
   secondaryName,
   secondaryRadar,
+  positionGroup,
+  isGoalkeeper = false,
 }) => {
+  const axes = positionGroup
+    ? AXES_BY_GROUP[positionGroup]
+    : isGoalkeeper
+    ? AXES_BY_GROUP.GK
+    : NEUTRAL_OUTFIELD_AXES;
+
   const size = 270;
   const cx = size / 2;
   const cy = size / 2;
@@ -32,7 +80,7 @@ export const PlayerRadarChart: React.FC<PlayerRadarChartProps> = ({
   const levels = [25, 50, 75, 100];
 
   const getPoint = (index: number, value: number) => {
-    const angle = (Math.PI * 2 * index) / AXES.length - Math.PI / 2;
+    const angle = (Math.PI * 2 * index) / axes.length - Math.PI / 2;
     const r = (Math.max(0, Math.min(100, value)) / 100) * maxRadius;
     return {
       x: cx + r * Math.cos(angle),
@@ -41,7 +89,7 @@ export const PlayerRadarChart: React.FC<PlayerRadarChartProps> = ({
   };
 
   const buildPolygonPoints = (radar: PlayerRadarAxes) =>
-    AXES.map((axis, idx) => {
+    axes.map((axis, idx) => {
       const pt = getPoint(idx, radar[axis.key]);
       return `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`;
     }).join(' ');
@@ -50,7 +98,7 @@ export const PlayerRadarChart: React.FC<PlayerRadarChartProps> = ({
     <View style={styles.container}>
       <Svg width={size} height={size}>
         {levels.map((lvl) => {
-          const pts = AXES.map((_, idx) => {
+          const pts = axes.map((_, idx) => {
             const p = getPoint(idx, lvl);
             return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
           }).join(' ');
@@ -65,7 +113,7 @@ export const PlayerRadarChart: React.FC<PlayerRadarChartProps> = ({
           );
         })}
 
-        {AXES.map((axis, idx) => {
+        {axes.map((axis, idx) => {
           const outer = getPoint(idx, 100);
           const labelPt = getPoint(idx, 124);
           return (
@@ -108,7 +156,13 @@ export const PlayerRadarChart: React.FC<PlayerRadarChartProps> = ({
           strokeWidth={2.2}
         />
 
-        {AXES.map((axis, idx) => {
+        {secondaryRadar &&
+          axes.map((axis, idx) => {
+            const pt = getPoint(idx, secondaryRadar[axis.key]);
+            return <Circle key={`sec-${axis.key}`} cx={pt.x} cy={pt.y} r={2.8} fill="#FF5252" />;
+          })}
+
+        {axes.map((axis, idx) => {
           const pt = getPoint(idx, primaryRadar[axis.key]);
           return <Circle key={axis.key} cx={pt.x} cy={pt.y} r={3.2} fill="#00E676" />;
         })}

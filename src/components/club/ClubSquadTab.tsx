@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    FlatList,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { ClubPlayerItem, fetchClubSquadFromLineups } from '../../services/clubStatsService';
 import { Match } from '../../types/football';
@@ -18,10 +18,14 @@ export interface SelectedPlayerPayload {
   number: number;
   pos: PlayerPositionCode;
   teamName: string;
+  photoUrl?: string;
+  nationality?: string;
+  age?: number;
 }
 
 interface ClubSquadTabProps {
   matches: Match[];
+  teamId?: number;
   teamName: string;
   onSelectPlayer: (player: SelectedPlayerPayload) => void;
 }
@@ -36,6 +40,7 @@ const FILTER_CHIPS: Array<{ key: PositionGroup; label: string }> = [
 
 export const ClubSquadTab: React.FC<ClubSquadTabProps> = ({
   matches,
+  teamId,
   teamName,
   onSelectPlayer,
 }) => {
@@ -46,17 +51,36 @@ export const ClubSquadTab: React.FC<ClubSquadTabProps> = ({
   useEffect(() => {
     let isMounted = true;
     setLoading(true);
-    fetchClubSquadFromLineups(matches, teamName)
+    fetchClubSquadFromLineups(matches, teamName, teamId)
       .then((list) => isMounted && setPlayers(list))
       .finally(() => isMounted && setLoading(false));
     return () => {
       isMounted = false;
     };
-  }, [matches, teamName]);
+  }, [matches, teamName, teamId]);
+
+  const groupCounts = useMemo(() => {
+    const counts: Record<PositionGroup, number> = {
+      ALL: players.length,
+      GK: 0,
+      DEF: 0,
+      MID: 0,
+      FWD: 0,
+    };
+    players.forEach((p) => {
+      const grp = (POS_META[p.pos] || POS_META.CM).group;
+      counts[grp] += 1;
+    });
+    return counts;
+  }, [players]);
 
   const filteredPlayers = useMemo(() => {
     return [...players]
-      .filter((p) => groupFilter === 'ALL' || POS_META[p.pos].group === groupFilter)
+      .filter((p) => {
+        if (groupFilter === 'ALL') return true;
+        const grp = (POS_META[p.pos] || POS_META.CM).group;
+        return grp === groupFilter;
+      })
       .sort(
         (a, b) =>
           POS_ORDER.indexOf(a.pos) - POS_ORDER.indexOf(b.pos) ||
@@ -82,7 +106,7 @@ export const ClubSquadTab: React.FC<ClubSquadTabProps> = ({
                 onPress={() => setGroupFilter(chip.key)}
               >
                 <Text style={[styles.chipText, isActive && styles.activeChipText]}>
-                  {chip.label}
+                  {chip.label} ({groupCounts[chip.key]})
                 </Text>
               </TouchableOpacity>
             );
@@ -96,7 +120,7 @@ export const ClubSquadTab: React.FC<ClubSquadTabProps> = ({
         contentContainerStyle={styles.list}
         ListEmptyComponent={<Text style={styles.emptyText}>Chưa có dữ liệu cầu thủ.</Text>}
         renderItem={({ item }) => {
-          const meta = POS_META[item.pos];
+          const meta = POS_META[item.pos] || POS_META.CM;
           return (
             <TouchableOpacity
               style={styles.row}
@@ -108,6 +132,9 @@ export const ClubSquadTab: React.FC<ClubSquadTabProps> = ({
                   number: item.number,
                   pos: item.pos,
                   teamName,
+                  photoUrl: item.photoUrl,
+                  nationality: item.nationality,
+                  age: item.age,
                 })
               }
             >

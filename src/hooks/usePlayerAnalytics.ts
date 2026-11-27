@@ -12,6 +12,7 @@ export function usePlayerAnalytics(params: {
   allMatches: Match[];
 }) {
   const { playerName, teamName, number = 0, pos = 'CM', allMatches } = params;
+  const officialPos = normalizePositionCode(pos);
   const [summary, setSummary] = useState<PlayerProfileSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -20,13 +21,7 @@ export function usePlayerAnalytics(params: {
     setSummary(null);
     setLoading(true);
 
-    fetchPlayerProfileSummary(
-      playerName,
-      teamName,
-      allMatches,
-      number,
-      normalizePositionCode(pos)
-    )
+    fetchPlayerProfileSummary(playerName, teamName, allMatches, number, officialPos)
       .then((res) => {
         if (isMounted) {
           setSummary(res);
@@ -40,7 +35,7 @@ export function usePlayerAnalytics(params: {
     return () => {
       isMounted = false;
     };
-  }, [playerName, teamName, number, pos, allMatches]);
+  }, [playerName, teamName, number, officialPos, allMatches]);
 
   const profile = useMemo(() => {
     const totalApps = summary ? summary.starts + summary.subAppearances : 0;
@@ -53,7 +48,7 @@ export function usePlayerAnalytics(params: {
         name: playerName,
         teamName,
         number: summary?.number || number,
-        pos: normalizePositionCode(summary?.pos || pos),
+        pos: officialPos,
         recentMatches: summary?.recentMatches,
         rawStats:
           summary && totalApps > 0
@@ -69,7 +64,7 @@ export function usePlayerAnalytics(params: {
       },
       allMatches
     );
-  }, [summary, playerName, teamName, number, pos, allMatches]);
+  }, [summary, playerName, teamName, number, officialPos, allMatches]);
 
   return { profile, summary, loading };
 }

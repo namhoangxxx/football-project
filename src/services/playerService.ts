@@ -59,6 +59,11 @@ interface PlayerMatchStatRow {
   red_cards?: number | null;
 }
 
+const isSubRole = (raw?: string): boolean => {
+  const s = (raw || '').trim().toUpperCase();
+  return !s || s === 'SUB' || s === 'SUBSTITUTE' || s === 'BENCH';
+};
+
 async function queryPlayerRecords(
   relation: 'player_season_summary_view' | 'players',
   trimmedName: string,
@@ -128,15 +133,13 @@ function buildRecentMatches(
     .map(({ timestamp: _timestamp, ...item }) => item);
 }
 
-/**
- * Fallback tổng hợp từ match_lineups và match_events của CLB khi bảng players/player_match_stats chưa có dữ liệu
- */
 async function aggregateFromClubLineupsAndEvents(
   playerName: string,
   teamName: string,
   seasonMatches: Match[],
   fallbackNumber: number,
-  fallbackPos: PlayerPositionCode
+  fallbackPos: PlayerPositionCode,
+  preserveOfficialPos: boolean
 ) {
   const clubFinished = seasonMatches
     .filter(
@@ -185,7 +188,7 @@ async function aggregateFromClubLineupsAndEvents(
   let yellowCards = 0;
   let redCards = 0;
   let detectedNumber = fallbackNumber;
-  let detectedPos = fallbackPos;
+  const startPosCounts = new Map<PlayerPositionCode, number>();
   const statRows: PlayerMatchStatRow[] = [];
 
   for (const lr of lineupRows) {
@@ -203,10 +206,17 @@ async function aggregateFromClubLineupsAndEvents(
 
     const pObj = (starter || sub)!.player;
     if (!detectedNumber && pObj.number) detectedNumber = pObj.number;
-    if (pObj.pos) detectedPos = normalizePositionCode(pObj.pos);
 
     const isStarter = Boolean(starter);
-    isStarter ? starts++ : subAppearances++;
+    if (isStarter) {
+      starts++;
+      if (!isSubRole(pObj.pos)) {
+        const code = normalizePositionCode(pObj.pos);
+        startPosCounts.set(code, (startPosCounts.get(code) || 0) + 1);
+      }
+    } else {
+      subAppearances++;
+    }
 
     let matchGoals = 0;
     let matchAssists = 0;
@@ -239,6 +249,17 @@ async function aggregateFromClubLineupsAndEvents(
 
   if (starts + subAppearances === 0) return null;
 
+  let detectedPos = fallbackPos;
+  if (!preserveOfficialPos && startPosCounts.size > 0) {
+    let maxCount = 0;
+    startPosCounts.forEach((count, code) => {
+      if (count > maxCount) {
+        maxCount = count;
+        detectedPos = code;
+      }
+    });
+  }
+
   return {
     number: detectedNumber,
     pos: detectedPos,
@@ -261,6 +282,7 @@ export const fetchPlayerProfileSummary = async (
 ): Promise<PlayerProfileSummary> => {
   let detectedNumber = fallbackNumber;
   let detectedPos = fallbackPos;
+  let hasOfficialPos = false;
   let nationality: string | undefined;
   let age: number | undefined;
   let height: string | undefined;
@@ -302,7 +324,10 @@ export const fetchPlayerProfileSummary = async (
           playerId = Number(p.player_id);
           resolvedTeamName = p.team_name || teamName;
           detectedNumber = Number(p.jersey_number) || detectedNumber;
-          detectedPos = normalizePositionCode(p.position_code ?? undefined);
+          if (p.position_code) {
+            detectedPos = normalizePositionCode(p.position_code);
+            hasOfficialPos = true;
+          }
           nationality = p.nationality || undefined;
           age = p.age || undefined;
           height = p.height || undefined;
@@ -347,14 +372,14 @@ export const fetchPlayerProfileSummary = async (
         }
       }
 
-      // Nếu chưa có dữ liệu trận đấu từ bảng players/player_match_stats, quét từ match_lineups & match_events
       if (starts + subAppearances === 0) {
         const lineupFallback = await aggregateFromClubLineupsAndEvents(
           trimmedName,
           resolvedTeamName,
           seasonMatches,
           detectedNumber,
-          detectedPos
+          detectedPos,
+          hasOfficialPos
         );
         if (lineupFallback) {
           detectedNumber = lineupFallback.number;

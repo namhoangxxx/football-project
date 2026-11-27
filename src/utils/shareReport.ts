@@ -2,6 +2,7 @@ import { Share } from 'react-native';
 import { Match } from '../types/football';
 import { PlayerAnalyticsProfile } from '../types/playerAnalytics';
 import { MatchTacticalReport } from '../types/tactical';
+import { normalizePositionCode, POS_META } from './playerPosition';
 
 export async function shareMatchTacticalReport(
   match: Match,
@@ -32,17 +33,29 @@ export async function shareMatchTacticalReport(
 export async function sharePlayerAnalyticsReport(
   profile: PlayerAnalyticsProfile
 ): Promise<void> {
+  const posCode = normalizePositionCode(profile.pos);
+  const posMeta = POS_META[posCode];
   const prosText = profile.pros.map((p) => `+ ${p}`).join('\n');
   const consText = profile.cons.map((c) => `- ${c}`).join('\n');
 
+  const statSummaryLines =
+    posMeta.group === 'GK'
+      ? [
+          `- Số trận: ${profile.appearances} (${profile.minutes}') | Chuyền chuẩn: ${profile.passAccuracy}%`,
+          `- Phản xạ: ${profile.radar.defending}/99 | Phát động: ${profile.radar.passing}/99 | Phân phối: ${profile.radar.creativity}/99`,
+        ]
+      : [
+          `- Đóng góp: ${profile.goals} bàn (${profile.xg} xG) | ${profile.assists} kiến tạo (${profile.xa} xA)`,
+          `- Chuyền chuẩn: ${profile.passAccuracy}% | Tắc bóng/90p: ${profile.tacklesPer90} | Rê bóng/90p: ${profile.dribblesPer90}`,
+        ];
+
   const message = [
     `⭐ [BALLMETRICS] HỒ SƠ PHÂN TÍCH CẦU THỦ`,
-    `🏃 ${profile.name} (#${profile.number || '-'} • ${profile.pos}) - ${profile.teamName}`,
+    `🏃 ${profile.name} (#${profile.number || '-'} • ${posCode} - ${posMeta.label}) - ${profile.teamName}`,
     ``,
     `📊 Phong độ & Hiệu suất:`,
     `- Điểm Rating mùa giải: ${profile.seasonRating.toFixed(2)} (5 trận gần nhất: ${profile.recent5Rating.toFixed(2)})`,
-    `- Đóng góp: ${profile.goals} bàn (${profile.xg} xG) | ${profile.assists} kiến tạo (${profile.xa} xA)`,
-    `- Chuyền chuẩn: ${profile.passAccuracy}% | Tắc bóng/90p: ${profile.tacklesPer90} | Rê bóng/90p: ${profile.dribblesPer90}`,
+    ...statSummaryLines,
     ``,
     `✅ Điểm mạnh:`,
     prosText,
