@@ -1,6 +1,6 @@
 import React from 'react';
 import { useWindowDimensions } from 'react-native';
-import Svg, { Circle, Line, Rect } from 'react-native-svg';
+import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 
 interface PitchBaseProps {
   width?: number;
@@ -50,17 +50,29 @@ export const PitchBase: React.FC<PitchBaseProps> = ({
       <Rect x="1" y="13.84" width="16.5" height="40.32" fill="none" stroke={strokeColor} strokeWidth="0.5" />
       <Rect x="1" y="24.84" width="5.5" height="18.32" fill="none" stroke={strokeColor} strokeWidth="0.5" />
       <Circle cx="12" cy="34" r="0.5" fill={strokeColor} />
+      <Path
+        d="M 17.5 26.69 A 9.15 9.15 0 0 1 17.5 41.31"
+        fill="none"
+        stroke={strokeColor}
+        strokeWidth="0.5"
+      />
 
       {/* Vòng cấm địa phải (Khung thành đối phương) */}
       <Rect x="82.5" y="13.84" width="16.5" height="40.32" fill="none" stroke={strokeColor} strokeWidth="0.5" />
       <Rect x="93.5" y="24.84" width="5.5" height="18.32" fill="none" stroke={strokeColor} strokeWidth="0.5" />
       <Circle cx="88" cy="34" r="0.5" fill={strokeColor} />
+      <Path
+        d="M 82.5 26.69 A 9.15 9.15 0 0 0 82.5 41.31"
+        fill="none"
+        stroke={strokeColor}
+        strokeWidth="0.5"
+      />
 
       {/* Khung thành 2 đầu */}
       <Rect x="0" y="30.34" width="1" height="7.32" fill="none" stroke="#FFFFFF" strokeWidth="0.6" />
       <Rect x="99" y="30.34" width="1" height="7.32" fill="none" stroke="#FFFFFF" strokeWidth="0.6" />
 
-      {/* Lớp dữ liệu chiến thuật truyền từ ngoài vào */}
+      {/* Lớp dữ liệu chiến thuật */}
       {children}
     </Svg>
   );

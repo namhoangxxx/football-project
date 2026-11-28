@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Match } from '../../types/football';
 import { MatchEventItem, MatchStats, TeamLineup } from '../../types/matchDetail';
 import { MatchTeamIdentities, TeamSide } from '../../types/tactical';
 import { shareMatchTacticalReport } from '../../utils/shareReport';
 import { generateMatchTacticalReport } from '../../utils/tactical';
-import { AppIcon } from '../common/AppIcon';
+import { AppIcon, IconName } from '../common/AppIcon';
 import { BoxEntryPitch } from '../tactics/BoxEntryPitch';
 import { DefensiveMapPitch } from '../tactics/DefensiveMapPitch';
 import { HeatmapPitch } from '../tactics/HeatmapPitch';
@@ -24,13 +24,13 @@ interface MatchTacticsTabProps {
   teamIdentities?: MatchTeamIdentities;
 }
 
-type ChartCategory = 'ALL' | 'ATTACK' | 'PASSING' | 'DEFENSE';
+type TacticalSection = 'OVERVIEW' | 'ATTACK' | 'PASSING' | 'DEFENSE';
 
-const CATEGORIES: Array<{ key: ChartCategory; label: string }> = [
-  { key: 'ALL', label: 'Tất cả (7)' },
-  { key: 'ATTACK', label: 'Tấn công & xG' },
-  { key: 'PASSING', label: 'Chuyền bóng' },
-  { key: 'DEFENSE', label: 'Pressing & Nhiệt' },
+const SECTIONS: Array<{ key: TacticalSection; label: string; icon: IconName }> = [
+  { key: 'OVERVIEW', label: 'Tổng quan', icon: 'brain' },
+  { key: 'ATTACK', label: 'Tấn công', icon: 'target' },
+  { key: 'PASSING', label: 'Chuyền bóng', icon: 'network' },
+  { key: 'DEFENSE', label: 'Phòng ngự', icon: 'shield' },
 ];
 
 export const MatchTacticsTab: React.FC<MatchTacticsTabProps> = ({
@@ -40,8 +40,14 @@ export const MatchTacticsTab: React.FC<MatchTacticsTabProps> = ({
   lineups,
   teamIdentities,
 }) => {
+  const [section, setSection] = useState<TacticalSection>('OVERVIEW');
   const [selectedSide, setSelectedSide] = useState<TeamSide>('HOME');
-  const [category, setCategory] = useState<ChartCategory>('ALL');
+
+  const isScheduled =
+    match.status === 'SCHEDULED' ||
+    match.status === 'TIMED' ||
+    match.status === 'NOT_STARTED';
+  const hasRealMatchData = Boolean(stats) || events.length > 0;
 
   const report = useMemo(
     () => generateMatchTacticalReport(match, stats, events, lineups, teamIdentities),
@@ -58,80 +64,188 @@ export const MatchTacticsTab: React.FC<MatchTacticsTabProps> = ({
         onPress={() => shareMatchTacticalReport(match, report)}
       >
         <AppIcon name="zap" size={14} color="#00E676" />
-        <Text style={styles.shareText}>Báo cáo Chiến thuật</Text>
+        <Text style={styles.shareText}>Chia sẻ Báo cáo Chiến thuật</Text>
       </TouchableOpacity>
 
-      <TacticalComparisonCard home={report.home} away={report.away} insights={report.storyInsights} />
-      <MomentumChart data={report.momentum} homeName={match.home_team} awayName={match.away_team} />
+      {!hasRealMatchData && (
+        <View style={styles.noticeBox}>
+          <Text style={styles.noticeText}>
+            {isScheduled
+              ? 'Trận đấu chưa diễn ra — Hiển thị cấu trúc sơ đồ & mô hình dự phóng chiến thuật.'
+              : 'Chưa đồng bộ đủ thống kê chi tiết — Biểu đồ được ước tính từ dữ liệu đội hình & kết quả trận.'}
+          </Text>
+        </View>
+      )}
 
-      <View style={styles.teamSwitcher}>
-        {(['HOME', 'AWAY'] as TeamSide[]).map((side) => {
-          const active = selectedSide === side;
-          const label = side === 'HOME' ? match.home_team : match.away_team;
+      {/* Thanh chia 4 ngăn chiến thuật */}
+      <View style={styles.sectionBar}>
+        {SECTIONS.map((item) => {
+          const active = section === item.key;
           return (
             <TouchableOpacity
-              key={side}
-              style={[styles.switchBtn, active && styles.activeSwitchBtn]}
-              onPress={() => setSelectedSide(side)}
+              key={item.key}
+              activeOpacity={0.8}
+              style={[styles.sectionTab, active && styles.activeSectionTab]}
+              onPress={() => setSection(item.key)}
             >
-              <AppIcon name={side === 'HOME' ? 'home' : 'plane'} size={13} color={active ? '#121212' : '#999'} />
-              <Text style={[styles.switchText, active && styles.activeSwitchText]} numberOfLines={1}>
-                {label}
+              <AppIcon
+                name={item.icon}
+                size={14}
+                color={active ? '#00E676' : '#888888'}
+              />
+              <Text
+                style={[styles.sectionTabText, active && styles.activeSectionTabText]}
+                numberOfLines={1}
+              >
+                {item.label}
               </Text>
             </TouchableOpacity>
           );
         })}
       </View>
 
-      <View style={styles.kpiRow}>
-        <View style={styles.kpiBox}>
-          <Text style={styles.kpiValue}>{activeProfile.xgTotal.toFixed(2)}</Text>
-          <Text style={styles.kpiLabel}>Bàn thắng kỳ vọng (xG)</Text>
-        </View>
-        <View style={styles.kpiBox}>
-          <Text style={[styles.kpiValue, { color: '#FF5252' }]}>+{activeProfile.xtTotal.toFixed(2)}</Text>
-          <Text style={styles.kpiLabel}>Mối đe dọa (xT)</Text>
-        </View>
-        <View style={styles.kpiBox}>
-          <Text style={[styles.kpiValue, { color: '#38BDF8' }]}>{activeProfile.ppda}</Text>
-          <Text style={styles.kpiLabel}>Pressing (PPDA)</Text>
-        </View>
-      </View>
+      {/* Ngăn 1: Tổng quan & Diễn biến 2 đội */}
+      {section === 'OVERVIEW' && (
+        <>
+          <TacticalComparisonCard
+            home={report.home}
+            away={report.away}
+            insights={report.storyInsights}
+          />
+          {!isScheduled && (
+            <MomentumChart
+              data={report.momentum}
+              homeName={match.home_team}
+              awayName={match.away_team}
+            />
+          )}
+        </>
+      )}
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catScroll}>
-        {CATEGORIES.map((c) => {
-          const active = category === c.key;
-          return (
-            <TouchableOpacity
-              key={c.key}
-              style={[styles.catChip, active && styles.activeCatChip]}
-              onPress={() => setCategory(c.key)}
+      {/* Bộ chọn đội + KPI nhanh chỉ hiển thị ở 3 ngăn chuyên sâu từng đội */}
+      {section !== 'OVERVIEW' && (
+        <>
+          <View style={styles.teamSwitcher}>
+            {(['HOME', 'AWAY'] as TeamSide[]).map((side) => {
+              const active = selectedSide === side;
+              const isHome = side === 'HOME';
+              const label = isHome ? match.home_team : match.away_team;
+              const accentColor = isHome ? '#00E676' : '#FF5252';
+
+              return (
+                <TouchableOpacity
+                  key={side}
+                  activeOpacity={0.8}
+                  style={[
+                    styles.switchBtn,
+                    active && {
+                      backgroundColor: isHome
+                        ? 'rgba(0, 230, 118, 0.14)'
+                        : 'rgba(255, 82, 82, 0.14)',
+                      borderColor: accentColor,
+                    },
+                  ]}
+                  onPress={() => setSelectedSide(side)}
+                >
+                  <View style={[styles.teamDot, { backgroundColor: accentColor }]} />
+                  <Text
+                    style={[
+                      styles.switchText,
+                      active && { color: accentColor, fontWeight: '700' },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <View style={styles.kpiRow}>
+            <View
+              style={[
+                styles.kpiBox,
+                section === 'ATTACK' && styles.kpiBoxHighlight,
+              ]}
             >
-              <Text style={[styles.catText, active && styles.activeCatText]}>{c.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-
-      {(category === 'ALL' || category === 'ATTACK') && (
-        <>
-          <ShotmapPitch teamName={activeProfile.teamName} shots={activeProfile.shots} xgTotal={activeProfile.xgTotal} />
-          <ThreatMatrixPitch teamName={activeProfile.teamName} grid={activeProfile.xtGrid} xtTotal={activeProfile.xtTotal} />
-          <BoxEntryPitch teamName={activeProfile.teamName} entries={activeProfile.boxEntries} />
+              <Text style={styles.kpiValue}>{activeProfile.xgTotal.toFixed(2)}</Text>
+              <Text style={styles.kpiLabel}>Bàn thắng kỳ vọng (xG)</Text>
+            </View>
+            <View
+              style={[
+                styles.kpiBox,
+                section === 'ATTACK' && styles.kpiBoxHighlight,
+              ]}
+            >
+              <Text style={[styles.kpiValue, { color: '#FF5252' }]}>
+                +{activeProfile.xtTotal.toFixed(2)}
+              </Text>
+              <Text style={styles.kpiLabel}>Mối đe dọa (xT)</Text>
+            </View>
+            <View
+              style={[
+                styles.kpiBox,
+                section === 'DEFENSE' && styles.kpiBoxHighlight,
+              ]}
+            >
+              <Text style={[styles.kpiValue, { color: '#38BDF8' }]}>
+                {activeProfile.ppda}
+              </Text>
+              <Text style={styles.kpiLabel}>Pressing (PPDA)</Text>
+            </View>
+          </View>
         </>
       )}
 
-      {(category === 'ALL' || category === 'PASSING') && (
+      {/* Ngăn 2: Tấn công & Dứt điểm */}
+      {section === 'ATTACK' && (
         <>
-          <PassNetworkPitch teamName={activeProfile.teamName} network={activeProfile.passNetwork} />
-          <PassingSonarChart teamName={activeProfile.teamName} bins={activeProfile.sonarBins} />
+          <ShotmapPitch
+            teamName={activeProfile.teamName}
+            shots={activeProfile.shots}
+            xgTotal={activeProfile.xgTotal}
+          />
+          <ThreatMatrixPitch
+            teamName={activeProfile.teamName}
+            grid={activeProfile.xtGrid}
+            xtTotal={activeProfile.xtTotal}
+          />
+          <BoxEntryPitch
+            teamName={activeProfile.teamName}
+            entries={activeProfile.boxEntries}
+          />
         </>
       )}
 
-      {(category === 'ALL' || category === 'DEFENSE') && (
+      {/* Ngăn 3: Kiểm soát & Chuyền bóng */}
+      {section === 'PASSING' && (
         <>
-          <DefensiveMapPitch teamName={activeProfile.teamName} actions={activeProfile.defensiveActions} ppda={activeProfile.ppda} pressingStyle={activeProfile.pressingStyle} />
-          <HeatmapPitch teamName={activeProfile.teamName} zones={activeProfile.heatmapZones} fieldTilt={activeProfile.fieldTilt} />
+          <PassNetworkPitch
+            teamName={activeProfile.teamName}
+            network={activeProfile.passNetwork}
+          />
+          <PassingSonarChart
+            teamName={activeProfile.teamName}
+            bins={activeProfile.sonarBins}
+          />
+        </>
+      )}
+
+      {/* Ngăn 4: Phòng ngự & Lãnh thổ */}
+      {section === 'DEFENSE' && (
+        <>
+          <DefensiveMapPitch
+            teamName={activeProfile.teamName}
+            actions={activeProfile.defensiveActions}
+            ppda={activeProfile.ppda}
+            pressingStyle={activeProfile.pressingStyle}
+          />
+          <HeatmapPitch
+            teamName={activeProfile.teamName}
+            zones={activeProfile.heatmapZones}
+            fieldTilt={activeProfile.fieldTilt}
+          />
         </>
       )}
     </View>
@@ -149,10 +263,25 @@ const styles = StyleSheet.create({
     borderColor: '#00E676',
     borderRadius: 10,
     paddingVertical: 8,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   shareText: { color: '#00E676', fontSize: 12, fontWeight: '700' },
-  teamSwitcher: {
+  noticeBox: {
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.35)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginBottom: 10,
+  },
+  noticeText: {
+    color: '#93C5FD',
+    fontSize: 11,
+    lineHeight: 15,
+    textAlign: 'center',
+  },
+  sectionBar: {
     flexDirection: 'row',
     backgroundColor: '#1A1A1A',
     borderRadius: 10,
@@ -160,6 +289,35 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: '#262626',
+    gap: 4,
+  },
+  sectionTab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 7,
+  },
+  activeSectionTab: {
+    backgroundColor: '#282828',
+    borderWidth: 1,
+    borderColor: '#363636',
+  },
+  sectionTabText: {
+    color: '#888888',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  activeSectionTabText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  teamSwitcher: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
   },
   switchBtn: {
     flex: 1,
@@ -167,14 +325,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 6,
+    backgroundColor: '#1A1A1A',
     paddingVertical: 9,
-    paddingHorizontal: 8,
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#262626',
   },
-  activeSwitchBtn: { backgroundColor: '#00E676' },
-  switchText: { color: '#999', fontSize: 12, fontWeight: '700', flexShrink: 1 },
-  activeSwitchText: { color: '#121212' },
-  kpiRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  teamDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  switchText: {
+    color: '#999999',
+    fontSize: 12,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  kpiRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    gap: 6,
+  },
   kpiBox: {
     flex: 1,
     backgroundColor: '#1A1A1A',
@@ -182,23 +356,13 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 6,
     alignItems: 'center',
-    marginHorizontal: 3,
     borderWidth: 1,
     borderColor: '#262626',
   },
-  kpiValue: { color: '#00E676', fontSize: 16, fontWeight: '800' },
-  kpiLabel: { color: '#888', fontSize: 9.5, marginTop: 3, textAlign: 'center' },
-  catScroll: { marginBottom: 12 },
-  catChip: {
-    backgroundColor: '#1A1A1A',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#282828',
+  kpiBoxHighlight: {
+    borderColor: '#383838',
+    backgroundColor: '#202020',
   },
-  activeCatChip: { backgroundColor: '#38BDF8', borderColor: '#38BDF8' },
-  catText: { color: '#94A3B8', fontSize: 11.5, fontWeight: '600' },
-  activeCatText: { color: '#121212', fontWeight: '700' },
+  kpiValue: { color: '#00E676', fontSize: 16, fontWeight: '800' },
+  kpiLabel: { color: '#888888', fontSize: 9.5, marginTop: 3, textAlign: 'center' },
 });

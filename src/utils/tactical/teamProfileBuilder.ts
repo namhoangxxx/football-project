@@ -12,11 +12,41 @@ import {
   TeamSide,
   TeamTacticalProfile,
 } from '../../types/tactical';
+import { normalizePositionCode, PlayerPositionCode, POS_META } from '../playerPosition';
 import {
   clamp,
   getFormationCoordinates,
   resolveEventSide,
 } from './tacticalHelpers';
+
+const TACTICAL_DEPTH: Record<PlayerPositionCode, number> = {
+  GK: 0,
+  CB: 1,
+  LB: 1.1,
+  RB: 1.1,
+  LWB: 1.6,
+  RWB: 1.6,
+  CDM: 2.2,
+  CM: 3,
+  LM: 3.1,
+  RM: 3.1,
+  CAM: 3.8,
+  LW: 4.4,
+  RW: 4.4,
+  CF: 4.8,
+  ST: 5,
+};
+
+const LATERAL_BIAS: Partial<Record<PlayerPositionCode, number>> = {
+  LB: -2,
+  LWB: -2,
+  LM: -2,
+  LW: -2,
+  RB: 2,
+  RWB: 2,
+  RM: 2,
+  RW: 2,
+};
 
 export const buildTeamProfile = (
   side: TeamSide,
@@ -29,42 +59,73 @@ export const buildTeamProfile = (
 ): TeamTacticalProfile => {
   const isHome = side === 'HOME';
   const teamName = isHome ? match.home_team : match.away_team;
-  const actualScore = Math.max(
-    0,
-    Number(isHome ? match.home_score : match.away_score) || 0
-  );
-  const possession = stats
+  const isScheduled =
+    match.status === 'SCHEDULED' ||
+    match.status === 'TIMED' ||
+    match.status === 'NOT_STARTED';
+
+  const actualScore = isScheduled
+    ? 0
+    : Math.max(0, Number(isHome ? match.home_score : match.away_score) || 0);
+
+  const rawPossession = stats ? (isHome ? stats.home_possession : stats.away_possession) : null;
+  const possession =
+    typeof rawPossession === 'number' && rawPossession > 5 && rawPossession < 95
+      ? rawPossession
+      : isHome
+      ? 53
+      : 47;
+
+  const rawShots = stats ? (isHome ? stats.home_shots : stats.away_shots) : null;
+  const totalShots = isScheduled
+    ? 0
+    : typeof rawShots === 'number' && rawShots >= 0
+    ? Math.max(rawShots, actualScore)
+    : Math.max(8, actualScore + 3);
+
+  const rawOnTarget = stats
     ? isHome
-      ? stats.home_possession
-      : stats.away_possession
-    : isHome
-    ? 54
-    : 46;
-  const totalShots = Math.max(
-    stats ? (isHome ? stats.home_shots : stats.away_shots) : 10,
-    actualScore + 2
-  );
-  const shotsOnTarget = Math.min(
-    totalShots,
-    Math.max(
-      actualScore,
-      stats
-        ? isHome
-          ? stats.home_shots_on_target
-          : stats.away_shots_on_target
-        : Math.ceil(totalShots * 0.4)
-    )
-  );
-  const corners = stats ? (isHome ? stats.home_corners : stats.away_corners) : 5;
-  const fouls = stats ? (isHome ? stats.home_fouls : stats.away_fouls) : 11;
+      ? stats.home_shots_on_target
+      : stats.away_shots_on_target
+    : null;
+  const shotsOnTarget = isScheduled
+    ? 0
+    : Math.min(
+        totalShots,
+        typeof rawOnTarget === 'number' && rawOnTarget >= 0
+          ? Math.max(rawOnTarget, actualScore)
+          : Math.max(actualScore, Math.ceil(totalShots * 0.38))
+      );
+
+  const corners = isScheduled
+    ? 0
+    : stats
+    ? Math.max(0, Number(isHome ? stats.home_corners : stats.away_corners) || 0)
+    : 5;
+  const fouls = isScheduled
+    ? 0
+    : stats
+    ? Math.max(0, Number(isHome ? stats.home_fouls : stats.away_fouls) || 0)
+    : 11;
 
   const teamEvents = events.filter(
     (ev) => resolveEventSide(ev.team, identities) === side
   );
-  const goalEvents = teamEvents.filter(
-    (e) =>
-      e.type === 'Goal' && !String(e.detail || '').toLowerCase().includes('own')
-  );
+
+  // Loại bỏ bàn phản lưới nhà & loạt sút luân lưu (phút > 120)
+  const goalEvents = teamEvents.filter((e) => {
+    if (e.type !== 'Goal') return false;
+    const detail = String(e.detail || '').toLowerCase();
+    const elapsed = Number(e.time?.elapsed) || 0;
+    return !detail.includes('own') && !detail.includes('missed') && elapsed <= 120;
+  });
+
+  const missedPenEvents = teamEvents.filter((e) => {
+    const detail = String(e.detail || '').toLowerCase();
+    const elapsed = Number(e.time?.elapsed) || 0;
+    return detail.includes('missed') && detail.includes('pen') && elapsed <= 120;
+  });
+
   const startXI = lineup?.startXI || [];
 
   const pickPlayerName = (idx: number) => {
@@ -77,29 +138,49 @@ export const buildTeamProfile = (
 
   // 1. SHOTMAP & xG
   const shots: ShotPoint[] = [];
-  let xgTotal = 0;
-  const targetGoalsCount = Math.max(actualScore, goalEvents.length);
+  const targetGoalsCount = isScheduled ? 0 : Math.max(actualScore, goalEvents.length);
 
   for (let idx = 0; idx < targetGoalsCount; idx++) {
     const g = goalEvents[idx];
-    const xg = Number((0.28 + rand() * 0.48).toFixed(2));
-    xgTotal += xg;
+    const isPen = String(g?.detail || '').toLowerCase().includes('pen');
+    const xg = isPen ? 0.76 : Number((0.34 + rand() * 0.44).toFixed(2));
     shots.push({
       id: `${side}-goal-${idx}`,
       team: side,
-      x: clamp(83 + rand() * 14, 80, 97.5),
-      y: clamp(22 + rand() * 24, 18, 50),
+      x: isPen ? 88.5 : clamp(83 + rand() * 14, 80, 97.5),
+      y: isPen ? 34 : clamp(22 + rand() * 24, 18, 50),
       xg,
       outcome: 'GOAL',
-      bodyPart: rand() > 0.75 ? 'HEAD' : rand() > 0.4 ? 'RIGHT_FOOT' : 'LEFT_FOOT',
+      bodyPart: isPen
+        ? 'RIGHT_FOOT'
+        : rand() > 0.75
+        ? 'HEAD'
+        : rand() > 0.4
+        ? 'RIGHT_FOOT'
+        : 'LEFT_FOOT',
       playerName: g?.player?.name || pickPlayerName(9 + idx),
       minute: g?.time?.elapsed || Math.floor(15 + rand() * 70),
     });
   }
 
-  for (let i = 0; i < Math.max(0, shotsOnTarget - shots.length); i++) {
-    const xg = Number((0.08 + rand() * 0.25).toFixed(2));
-    xgTotal += xg;
+  for (let i = 0; i < missedPenEvents.length; i++) {
+    const mp = missedPenEvents[i];
+    shots.push({
+      id: `${side}-pen-miss-${i}`,
+      team: side,
+      x: 88.5,
+      y: 34,
+      xg: 0.76,
+      outcome: 'SAVED',
+      bodyPart: 'RIGHT_FOOT',
+      playerName: mp?.player?.name || pickPlayerName(9),
+      minute: mp?.time?.elapsed || 50,
+    });
+  }
+
+  const remainingSaved = Math.max(0, shotsOnTarget - shots.length);
+  for (let i = 0; i < remainingSaved; i++) {
+    const xg = Number((0.08 + rand() * 0.24).toFixed(2));
     shots.push({
       id: `${side}-saved-${i}`,
       team: side,
@@ -113,9 +194,9 @@ export const buildTeamProfile = (
     });
   }
 
-  for (let i = 0; i < Math.max(0, totalShots - shots.length); i++) {
+  const remainingOff = Math.max(0, totalShots - shots.length);
+  for (let i = 0; i < remainingOff; i++) {
     const xg = Number((0.02 + rand() * 0.11).toFixed(2));
-    xgTotal += xg;
     shots.push({
       id: `${side}-off-${i}`,
       team: side,
@@ -129,24 +210,57 @@ export const buildTeamProfile = (
     });
   }
 
-  // 2. PASS NETWORK
+  const xgTotal = Number(shots.reduce((sum, s) => sum + s.xg, 0).toFixed(2));
+
+  // 2. PASS NETWORK (Sắp xếp đội hình chuẩn GK -> DEF -> MID -> FWD trước khi ghép tọa độ)
   const formation = lineup?.formation || '4-3-3';
   const baseCoords = getFormationCoordinates(formation);
   const shiftForward = (possession - 50) * 0.18;
 
+  const normalizedXI = startXI
+    .map((item, origIdx) => {
+      const p = item?.player;
+      const fallbackPos: PlayerPositionCode =
+        origIdx === 0 ? 'GK' : origIdx <= 4 ? 'CB' : origIdx <= 7 ? 'CM' : 'ST';
+      const pos = p?.pos ? normalizePositionCode(p.pos) : fallbackPos;
+      return { player: p, pos, origIdx };
+    })
+    .sort((a, b) => {
+      const depthDiff = TACTICAL_DEPTH[a.pos] - TACTICAL_DEPTH[b.pos];
+      if (depthDiff !== 0) return depthDiff;
+      const latDiff = (LATERAL_BIAS[a.pos] ?? 0) - (LATERAL_BIAS[b.pos] ?? 0);
+      if (latDiff !== 0) return latDiff;
+      return a.origIdx - b.origIdx;
+    });
+
   const nodes: PassNode[] = baseCoords.map((pt, idx) => {
-    const p = startXI[idx]?.player;
-    const pos = p?.pos || (idx === 0 ? 'GK' : idx <= 4 ? 'DEF' : idx <= 7 ? 'MID' : 'FWD');
-    const isMidfielder = pos.toUpperCase().includes('M');
+    const entry = normalizedXI[idx];
+    const p = entry?.player;
+    const pos: PlayerPositionCode =
+      entry?.pos || (idx === 0 ? 'GK' : idx <= 4 ? 'CB' : idx <= 7 ? 'CM' : 'ST');
+    const group = POS_META[pos].group;
+
+    const baseTouches =
+      group === 'GK'
+        ? 26
+        : group === 'MID'
+        ? pos === 'CDM' || pos === 'CM'
+          ? 64
+          : 54
+        : group === 'DEF'
+        ? pos === 'LWB' || pos === 'RWB'
+          ? 52
+          : 46
+        : 34;
 
     return {
       id: `${side}-node-${idx}`,
       number: p?.number || idx + 1,
       name: p?.name ? p.name.split(' ').slice(-1)[0] : `#${idx + 1}`,
       pos,
-      x: clamp(pt.x + (idx === 0 ? 0 : shiftForward + (rand() - 0.5) * 5), 6, 90),
-      y: clamp(pt.y + (rand() - 0.5) * 4, 6, 62),
-      touches: Math.round((isMidfielder ? 58 : 36) * (possession / 50) + rand() * 15),
+      x: clamp(pt.x + (idx === 0 ? 0 : shiftForward + (rand() - 0.5) * 4.5), 6, 90),
+      y: clamp(pt.y + (rand() - 0.5) * 3.5, 6, 62),
+      touches: Math.round(baseTouches * (possession / 50) + rand() * 14),
     };
   });
 
@@ -166,10 +280,10 @@ export const buildTeamProfile = (
   }
   const topNode = [...nodes].sort((a, b) => b.touches - a.touches)[0];
 
-  // 3. HEATMAP & FIELD TILT
-  const attThird = clamp(Math.round(possession * 0.58 + (totalShots - 10) * 0.8), 18, 48);
-  const defThird = clamp(Math.round((100 - possession) * 0.52), 16, 44);
-  const midThird = Math.max(20, 100 - attThird - defThird);
+  // 3. HEATMAP & FIELD TILT (Tổng 3 khu vực luôn chính xác 100%)
+  const attThird = clamp(Math.round(possession * 0.54 + (totalShots - 10) * 0.7), 16, 46);
+  const defThird = clamp(Math.round((100 - possession) * 0.5), 15, 42);
+  const midThird = 100 - attThird - defThird;
 
   const heatmapZones: HeatmapZone[] = Array.from({ length: 26 }, () => {
     const zoneRoll = rand() * 100;
@@ -223,7 +337,9 @@ export const buildTeamProfile = (
   }));
 
   // 6. BOX ENTRY MAP
-  const entryCount = clamp(Math.round(totalShots * 1.1 + corners * 0.8), 6, 18);
+  const entryCount = isScheduled
+    ? 0
+    : clamp(Math.round(totalShots * 1.1 + corners * 0.8), 4, 18);
   const boxEntries: BoxEntryArrow[] = Array.from({ length: entryCount }, (_, i) => {
     const isCross = i < corners || rand() > 0.55;
     const fromTopWing = rand() > 0.5;
@@ -242,28 +358,33 @@ export const buildTeamProfile = (
   });
 
   // 7. THREAT MATRIX (xT GRID 12x8)
+  const effectiveShotsScale = isScheduled ? 0.5 : Math.max(4, totalShots) / 12;
   const xtGrid: number[][] = Array.from({ length: 8 }, (_, row) =>
     Array.from({ length: 12 }, (_, col) => {
       const colFactor = Math.pow((col + 1) / 12, 2.1);
       const rowFactor = 1 - (Math.abs(row - 3.5) / 3.5) * 0.45;
-      const teamScale = (possession / 50) * (totalShots / 12);
+      const teamScale = (possession / 50) * effectiveShotsScale;
       const val = colFactor * rowFactor * teamScale * (0.045 + rand() * 0.035);
       return Number(clamp(val, 0.001, 0.14).toFixed(3));
     })
   );
 
-  const xtTotal = Number(
-    xtGrid
-      .flat()
-      .reduce((acc, v) => acc + v * 0.45, 0)
-      .toFixed(2)
-  );
+  const xtTotal = isScheduled
+    ? 0
+    : Number(
+        Math.max(
+          0.35,
+          xtGrid
+            .flat()
+            .reduce((acc, v) => acc + v * 0.45, 0)
+        ).toFixed(2)
+      );
 
   return {
     teamName,
     actualGoals: targetGoalsCount,
-    xgTotal: Number(Math.max(xgTotal, targetGoalsCount * 0.42).toFixed(2)),
-    xtTotal: Math.max(0.45, xtTotal),
+    xgTotal,
+    xtTotal,
     ppda,
     pressingStyle,
     fieldTilt: { defThird, midThird, attThird },

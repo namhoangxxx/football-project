@@ -174,7 +174,13 @@ export const MatchDetailScreen: React.FC<MatchDetailProps> = ({
               </View>
             ) : (
               <>
-                {activeTab === 'STATS' && <MatchStatsTab stats={stats} />}
+                {activeTab === 'STATS' && (
+                  <MatchStatsTab
+                    stats={stats}
+                    homeName={match.home_team}
+                    awayName={match.away_team}
+                  />
+                )}
                 {activeTab === 'TACTICS' && (
                   <MatchTacticsTab
                     match={match}

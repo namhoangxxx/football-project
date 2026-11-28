@@ -16,7 +16,17 @@ export const MomentumChart: React.FC<MomentumChartProps> = ({ data, homeName, aw
   const height = 148;
   const midY = height / 2;
   const maxBarHeight = 46;
-  const barSlotWidth = width / Math.max(data.length, 1);
+
+  if (data.length === 0) {
+    return null;
+  }
+
+  const barSlotWidth = width / data.length;
+  const gap = barSlotWidth > 8 ? 3 : barSlotWidth > 4 ? 1.5 : 0.6;
+  const barW = Math.max(1.5, barSlotWidth - gap);
+
+  const htIndex = data.findIndex((pt) => pt.minute > 45);
+  const htX = htIndex > 0 ? htIndex * barSlotWidth : width / 2;
 
   return (
     <View style={styles.card}>
@@ -37,19 +47,37 @@ export const MomentumChart: React.FC<MomentumChartProps> = ({ data, homeName, aw
       <View style={styles.chartWrapper}>
         <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
           <Line x1="0" y1={midY} x2={width} y2={midY} stroke="#444444" strokeWidth="1" />
-          <Line x1={width / 2} y1="14" x2={width / 2} y2={height - 14} stroke="#555555" strokeWidth="1" strokeDasharray="3,3" />
+          <Line
+            x1={htX}
+            y1="14"
+            x2={htX}
+            y2={height - 14}
+            stroke="#555555"
+            strokeWidth="1"
+            strokeDasharray="3,3"
+          />
 
           {data.map((pt, idx) => {
+            const absVal = Math.abs(pt.value);
+            const isNeutral = absVal < 1;
             const isHome = pt.value >= 0;
-            const barH = Math.max(4, (Math.abs(pt.value) / 100) * maxBarHeight);
-            const x = idx * barSlotWidth + 3;
-            const barW = Math.max(4, barSlotWidth - 6);
-            const y = isHome ? midY - barH : midY;
+            const barH = isNeutral ? 2 : Math.max(4, (Math.min(100, absVal) / 100) * maxBarHeight);
+            const x = idx * barSlotWidth + gap / 2;
+            const y = isNeutral ? midY - 1 : isHome ? midY - barH : midY;
             const cx = x + barW / 2;
+            const fillColor = isNeutral ? '#475569' : isHome ? '#00E676' : '#FF5252';
 
             return (
-              <React.Fragment key={pt.minute}>
-                <Rect x={x} y={y} width={barW} height={barH} rx="2" fill={isHome ? '#00E676' : '#FF5252'} opacity={0.85} />
+              <React.Fragment key={`${pt.minute}-${idx}`}>
+                <Rect
+                  x={x}
+                  y={y}
+                  width={barW}
+                  height={barH}
+                  rx={Math.min(2, barW / 2)}
+                  fill={fillColor}
+                  opacity={isNeutral ? 0.6 : 0.85}
+                />
 
                 {pt.goals &&
                   pt.goals.length > 0 &&
@@ -57,7 +85,15 @@ export const MomentumChart: React.FC<MomentumChartProps> = ({ data, homeName, aw
                     const cy = scorerSide === 'HOME' ? 8 + gIdx * 9 : height - 8 - gIdx * 9;
                     const accent = scorerSide === 'HOME' ? '#00E676' : '#FF5252';
                     return (
-                      <Circle key={`g-${gIdx}`} cx={cx} cy={cy} r="3.4" fill="#FFFFFF" stroke={accent} strokeWidth="1.5" />
+                      <Circle
+                        key={`g-${gIdx}`}
+                        cx={cx}
+                        cy={cy}
+                        r="3.4"
+                        fill="#FFFFFF"
+                        stroke={accent}
+                        strokeWidth="1.5"
+                      />
                     );
                   })}
 

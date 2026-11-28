@@ -83,13 +83,23 @@ export const resolveEventSide = (
 export const getFormationCoordinates = (
   formation?: string
 ): Array<{ x: number; y: number }> => {
-  const clean = (formation || '4-3-3').replace(/[^0-9-]/g, '');
-  const lines = clean
-    .split('-')
+  const raw = (formation || '4-3-3').trim();
+  const clean = raw.replace(/[^0-9-]/g, '');
+  const rawParts = clean.includes('-')
+    ? clean.split('-')
+    : /^\d{3,5}$/.test(clean)
+    ? clean.split('')
+    : [];
+
+  const lines = rawParts
     .map((n) => parseInt(n, 10))
     .filter((n) => !isNaN(n) && n > 0);
 
-  const validLines = lines.length >= 2 ? lines : [4, 3, 3];
+  const validLines =
+    lines.length >= 2 && lines.reduce((sum, n) => sum + n, 0) === 10
+      ? lines
+      : [4, 3, 3];
+
   const coords: Array<{ x: number; y: number }> = [{ x: 8, y: 34 }];
 
   const startX = 24;
@@ -98,10 +108,16 @@ export const getFormationCoordinates = (
     validLines.length > 1 ? (endX - startX) / (validLines.length - 1) : 25;
 
   validLines.forEach((count, lineIdx) => {
-    const x = startX + lineIdx * stepX;
+    const baseX = startX + lineIdx * stepX;
     for (let i = 0; i < count; i++) {
+      const isOuterFlank = count >= 4 && (i === 0 || i === count - 1);
+      // Hậu vệ biên / tiền vệ biên dâng cao hơn trục trung lộ để tránh chồng đường chuyền
+      const xOffset = lineIdx === 0 && isOuterFlank ? 3.5 : lineIdx === 0 && count >= 4 ? -1.2 : 0;
       const y = ((i + 1) / (count + 1)) * 68;
-      coords.push({ x, y });
+      coords.push({
+        x: clamp(baseX + xOffset, 16, 88),
+        y: clamp(y, 7, 61),
+      });
     }
   });
 

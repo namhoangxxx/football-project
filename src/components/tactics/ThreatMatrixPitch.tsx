@@ -26,16 +26,21 @@ export const ThreatMatrixPitch: React.FC<ThreatMatrixPitchProps> = ({ teamName, 
       <View style={styles.headerRow}>
         <View style={styles.titleRow}>
           <AppIcon name="alert" size={15} color="#FF5252" />
-          <Text style={styles.title}>Ma trận Mối đe dọa (xT Grid 12×8)</Text>
+          <Text style={styles.title} numberOfLines={1}>
+            Ma trận Mối đe dọa (xT 12×8)
+          </Text>
         </View>
         <View style={styles.xtBadge}>
           <Text style={styles.xtText}>Tổng xT: +{xtTotal.toFixed(2)}</Text>
         </View>
       </View>
 
-      <Text style={styles.subText}>
-        {teamName} • Vùng đỏ đậm là khu vực tịnh tiến bóng tạo nguy cơ ghi bàn cao nhất
-      </Text>
+      <View style={styles.subRow}>
+        <Text style={styles.subText} numberOfLines={1}>
+          {teamName} • Giá trị kỳ vọng tịnh tiến bóng theo ô sân
+        </Text>
+        <Text style={styles.dirText}>Tấn công →</Text>
+      </View>
 
       <View style={styles.pitchWrapper}>
         <PitchBase>
@@ -68,6 +73,17 @@ export const ThreatMatrixPitch: React.FC<ThreatMatrixPitchProps> = ({ teamName, 
           )}
         </PitchBase>
       </View>
+
+      <View style={styles.scaleRow}>
+        <Text style={styles.scaleLabel}>Thấp</Text>
+        <View style={styles.scaleSwatches}>
+          <View style={[styles.swatch, { backgroundColor: 'rgba(0, 230, 118, 0.28)' }]} />
+          <View style={[styles.swatch, { backgroundColor: 'rgba(255, 234, 0, 0.5)' }]} />
+          <View style={[styles.swatch, { backgroundColor: 'rgba(255, 145, 0, 0.7)' }]} />
+          <View style={[styles.swatch, { backgroundColor: 'rgba(255, 23, 68, 0.85)' }]} />
+        </View>
+        <Text style={styles.scaleLabel}>Nguy hiểm cao (≥0.08)</Text>
+      </View>
     </View>
   );
 };
@@ -75,10 +91,38 @@ export const ThreatMatrixPitch: React.FC<ThreatMatrixPitchProps> = ({ teamName, 
 const styles = StyleSheet.create({
   card: { backgroundColor: '#1E1E1E', borderRadius: 12, padding: 14, marginBottom: 14 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, paddingRight: 8 },
   title: { color: '#FFFFFF', fontSize: 13.5, fontWeight: 'bold' },
-  xtBadge: { backgroundColor: '#FF174422', borderWidth: 1, borderColor: '#FF5252', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+  xtBadge: {
+    backgroundColor: '#FF174422',
+    borderWidth: 1,
+    borderColor: '#FF5252',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
   xtText: { color: '#FF5252', fontSize: 11, fontWeight: 'bold' },
-  subText: { color: '#AAAAAA', fontSize: 11, marginBottom: 10 },
+  subRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 8,
+  },
+  subText: { color: '#AAAAAA', fontSize: 11, flex: 1 },
+  dirText: { color: '#64748B', fontSize: 10, fontWeight: '700' },
   pitchWrapper: { alignItems: 'center' },
+  scaleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#282828',
+  },
+  scaleSwatches: { flexDirection: 'row', gap: 3 },
+  swatch: { width: 18, height: 6, borderRadius: 2 },
+  scaleLabel: { color: '#94A3B8', fontSize: 10 },
 });

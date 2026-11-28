@@ -2,6 +2,32 @@ import { SUPABASE_HEADERS, SUPABASE_URL } from '../config/supabase';
 import { MatchEventItem, MatchStats, TeamLineup } from '../types/matchDetail';
 import { MatchTeamIdentities, TeamIdentity } from '../types/tactical';
 
+export const normalizePossession = (
+  homeRaw?: number | string | null,
+  awayRaw?: number | string | null
+): { home: number; away: number } => {
+  const parseNum = (val?: number | string | null): number => {
+    if (typeof val === 'number') return Number.isFinite(val) ? val : 0;
+    if (typeof val === 'string') {
+      const n = parseFloat(val.replace('%', '').trim());
+      return Number.isFinite(n) ? n : 0;
+    }
+    return 0;
+  };
+
+  const h = parseNum(homeRaw);
+  const a = parseNum(awayRaw);
+  const total = h + a;
+
+  if (total <= 0) return { home: 50, away: 50 };
+
+  const home = Math.min(100, Math.max(0, Math.round((h / total) * 100)));
+  return {
+    home,
+    away: 100 - home,
+  };
+};
+
 export const getMatchTeamIdentities = async (
   homeTeamId: number,
   awayTeamId: number,
@@ -61,7 +87,31 @@ export const getMatchStats = async (
     );
     if (res.ok) {
       const data = await res.json();
-      if (data && data.length > 0) return data[0] as MatchStats;
+      if (data && data.length > 0) {
+        const raw = { ...data[0] };
+        const rawHomePos =
+          raw.home_possession ?? raw.possession_home ?? raw.homePossession;
+        const rawAwayPos =
+          raw.away_possession ?? raw.possession_away ?? raw.awayPossession;
+
+        if (rawHomePos != null || rawAwayPos != null) {
+          const { home, away } = normalizePossession(rawHomePos, rawAwayPos);
+          if ('home_possession' in raw || 'away_possession' in raw) {
+            raw.home_possession = home;
+            raw.away_possession = away;
+          }
+          if ('possession_home' in raw || 'possession_away' in raw) {
+            raw.possession_home = home;
+            raw.possession_away = away;
+          }
+          if ('homePossession' in raw || 'awayPossession' in raw) {
+            raw.homePossession = home;
+            raw.awayPossession = away;
+          }
+        }
+
+        return raw as MatchStats;
+      }
     }
     return null;
   } catch (error) {
